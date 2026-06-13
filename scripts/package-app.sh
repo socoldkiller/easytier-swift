@@ -14,6 +14,20 @@ HELPER_IDENTIFIER="com.kkrainbow.easytier.mac.helper"
 VALIDATOR_IDENTIFIER="com.kkrainbow.easytier.mac.validator"
 BUILD_NUMBER="${EASYTIER_BUILD_NUMBER:-$(date -u +%Y%m%d%H%M%S)}"
 
+git_revision() {
+  local path="$1"
+  local revision
+  revision="$(git -C "$path" rev-parse --short HEAD 2>/dev/null || true)"
+  if [[ -z "$revision" ]]; then
+    echo "unknown"
+    return
+  fi
+  if [[ -n "$(git -C "$path" status --short --untracked-files=no 2>/dev/null || true)" ]]; then
+    revision="$revision-dirty"
+  fi
+  echo "$revision"
+}
+
 clear_finder_info() {
   local path="$1"
   for _ in $(seq 1 20); do
@@ -36,6 +50,9 @@ clear_codesign_blocking_xattrs() {
 }
 
 cd "$ROOT_DIR"
+GUI_COMMIT="$(git_revision "$ROOT_DIR")"
+CORE_COMMIT="$(git_revision "$ROOT_DIR/Vendor/EasyTier")"
+
 swift build --product EasyTierMac
 swift build --product EasyTierValidator
 swift build --product EasyTierPrivilegedHelper
@@ -69,6 +86,10 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
     <string>0.1.0</string>
     <key>CFBundleVersion</key>
     <string>$BUILD_NUMBER</string>
+    <key>EasyTierGUICommit</key>
+    <string>$GUI_COMMIT</string>
+    <key>EasyTierCoreCommit</key>
+    <string>$CORE_COMMIT</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>

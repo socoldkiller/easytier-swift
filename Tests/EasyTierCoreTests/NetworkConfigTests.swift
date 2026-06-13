@@ -83,6 +83,37 @@ import Testing
     #expect(loaded.lastSelectedConfigID == "abc")
 }
 
+@MainActor
+@Test func selectedRunningInstanceDoesNotFallBackToFirstInstance() {
+    let first = NetworkConfig(instance_id: "first-id", network_name: "first-network")
+    let second = NetworkConfig(instance_id: "second-id", network_name: "second-network")
+    let store = EasyTierAppStore(client: UnavailableEasyTierCoreClient(reason: "test"))
+
+    store.configs = [StoredNetworkConfig(config: first), StoredNetworkConfig(config: second)]
+    store.selectedConfigID = second.instance_id
+    store.instances = [NetworkInstance(instance_id: first.instance_id, name: first.network_name, running: true)]
+
+    #expect(store.selectedRunningInstance == nil)
+    #expect(store.selectedMemberStatuses.isEmpty)
+}
+
+@MainActor
+@Test func selectedRunningInstancePrefersInstanceIDWhenNamesMatch() throws {
+    let first = NetworkConfig(instance_id: "first-id", network_name: "shared-network")
+    let second = NetworkConfig(instance_id: "second-id", network_name: "shared-network")
+    let store = EasyTierAppStore(client: UnavailableEasyTierCoreClient(reason: "test"))
+
+    store.configs = [StoredNetworkConfig(config: first), StoredNetworkConfig(config: second)]
+    store.selectedConfigID = second.instance_id
+    store.instances = [
+        NetworkInstance(instance_id: first.instance_id, name: first.network_name, running: true),
+        NetworkInstance(instance_id: second.instance_id, name: second.network_name, running: true),
+    ]
+
+    let selected = try #require(store.selectedRunningInstance)
+    #expect(selected.instance_id == second.instance_id)
+}
+
 @Test func unavailableClientReportsClearRuntimeFailure() async {
     let client = UnavailableEasyTierCoreClient(reason: "missing dylib")
 

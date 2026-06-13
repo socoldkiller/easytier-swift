@@ -70,6 +70,9 @@ struct ContentView: View {
                 if tomlMode == .import { store.importTOML(text) }
             }
         }
+        .sheet(isPresented: $store.isShowingAbout) {
+            AboutView()
+        }
         .alert("EasyTier", isPresented: Binding(get: { store.lastError != nil }, set: { if !$0 { store.lastError = nil } })) {
             Button("OK") { store.lastError = nil }
         } message: {
@@ -83,7 +86,7 @@ struct ContentView: View {
         return List(selection: selectedConfigIDBinding) {
             Section("Networks") {
                 ForEach(store.configs) { stored in
-                    NetworkRow(stored: stored, running: store.instances.contains { $0.name == stored.config.network_name })
+                    NetworkRow(stored: stored, state: connectionState(for: stored))
                         .tag(stored.id as String?)
                 }
             }
@@ -149,6 +152,11 @@ struct ContentView: View {
             } label: {
                 Label("TOML", systemImage: "doc.text")
             }
+
+            Button { store.isShowingAbout = true } label: {
+                Label("About", systemImage: "info.circle")
+            }
+            .help("About EasyTier")
         }
     }
 
@@ -164,6 +172,15 @@ struct ContentView: View {
         return store.instances.contains { instance in
             instance.name == config.network_name || instance.instance_id == config.instance_id
         }
+    }
+
+    private func connectionState(for stored: StoredNetworkConfig) -> ConnectionGlyphState {
+        if store.lastError != nil, store.selectedConfigID == stored.id { return .error }
+        if store.isBusy, store.selectedConfigID == stored.id { return .connecting }
+        if store.instances.contains(where: { $0.name == stored.config.network_name || $0.instance_id == stored.config.instance_id }) {
+            return .connected
+        }
+        return .idle
     }
 
     private var selectedConfigIDBinding: Binding<String?> {
@@ -272,13 +289,11 @@ private struct PermissionBanner: View {
 
 private struct NetworkRow: View {
     var stored: StoredNetworkConfig
-    var running: Bool
+    var state: ConnectionGlyphState
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: running ? "circle.fill" : "circle")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(running ? .green : .secondary)
+            NetworkStatusGlyph(state: state)
             VStack(alignment: .leading, spacing: 2) {
                 Text(stored.config.network_name)
                     .lineLimit(1)
@@ -288,5 +303,49 @@ private struct NetworkRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+private struct NetworkStatusGlyph: View {
+    var state: ConnectionGlyphState
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            ConnectionGlyph(state: state, size: 18)
+                .frame(width: 18, height: 18)
+
+            Circle()
+                .fill(dotColor)
+                .overlay {
+                    Circle()
+                        .stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.2)
+                }
+                .frame(width: 7, height: 7)
+                .offset(x: 2, y: 2)
+        }
+        .frame(width: 22, height: 22)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var dotColor: Color {
+        switch state {
+        case .connected:
+            return .green
+        case .idle:
+            return .red
+        case .connecting, .error:
+            return .orange
+        }
+    }
+
+    private var accessibilityLabel: Text {
+        switch state {
+        case .connected:
+            return Text("Running")
+        case .idle:
+            return Text("Stopped")
+        case .connecting, .error:
+            return Text("Unknown")
+        }
     }
 }

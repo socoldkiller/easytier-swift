@@ -6,7 +6,7 @@ struct ConfigEditorView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 17) {
                 CardSection("Basic") {
                     FieldRow("Network name") {
                         TextField("easytier", text: $config.network_name)
@@ -41,8 +41,8 @@ struct ConfigEditorView: View {
                 }
 
                 CardSection("Advanced") {
-                    DisclosureGroup("Network routing") {
-                        VStack(alignment: .leading, spacing: 14) {
+                    ExpandableSettingsGroup("Network routing") {
+                        VStack(alignment: .leading, spacing: 12) {
                             StringListEditor(title: "Listeners", placeholder: "tcp://0.0.0.0:11010", values: $config.listener_urls)
                             StringListEditor(title: "Proxy CIDRs", placeholder: "10.0.0.0/24", values: $config.proxy_cidrs)
                             Toggle("Manual routes", isOn: $config.enable_manual_routes)
@@ -51,13 +51,12 @@ struct ConfigEditorView: View {
                             StringListEditor(title: "Exit nodes", placeholder: "10.144.144.1", values: $config.exit_nodes)
                             StringListEditor(title: "Mapped listeners", placeholder: "tcp://0.0.0.0:8080", values: $config.mapped_listeners)
                         }
-                        .padding(.top, 10)
                     }
 
                     Divider()
 
-                    DisclosureGroup("SOCKS5 and VPN portal") {
-                        VStack(alignment: .leading, spacing: 14) {
+                    ExpandableSettingsGroup("SOCKS5 and VPN portal") {
+                        VStack(alignment: .leading, spacing: 12) {
                             Toggle("Enable SOCKS5", isOn: optionalBool($config.enable_socks5, defaultValue: false))
                             FieldRow("SOCKS5 port") {
                                 TextField("1080", value: $config.socks5_port, format: .number)
@@ -80,12 +79,11 @@ struct ConfigEditorView: View {
                                     .disabled(!config.enable_vpn_portal)
                             }
                         }
-                        .padding(.top, 10)
                     }
                 }
 
                 CardSection("Flags") {
-                    Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 10) {
+                    Grid(alignment: .leading, horizontalSpacing: 26, verticalSpacing: 9) {
                         GridRow {
                             Toggle("Latency first", isOn: $config.latency_first)
                             Toggle("Disable P2P", isOn: optionalBool($config.disable_p2p, defaultValue: false))
@@ -113,7 +111,7 @@ struct ConfigEditorView: View {
                     PortForwardEditor(portForwards: $config.port_forwards)
                 }
             }
-            .padding(20)
+            .padding(18)
         }
     }
 
@@ -122,6 +120,47 @@ struct ConfigEditorView: View {
             get: { binding.wrappedValue ?? defaultValue },
             set: { binding.wrappedValue = $0 }
         )
+    }
+}
+
+private struct ExpandableSettingsGroup<Content: View>: View {
+    var title: String
+    @ViewBuilder var content: Content
+    @State private var isExpanded = false
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 9) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .medium))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 12)
+                    Text(title)
+                        .font(.system(size: 14, weight: .medium))
+                    Spacer(minLength: 12)
+                }
+                .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+
+            if isExpanded {
+                content
+                    .padding(.top, 8)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
     }
 }
 
@@ -135,15 +174,19 @@ private struct CardSection<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.headline)
-            VStack(alignment: .leading, spacing: 12) {
+                .font(.system(size: 16, weight: .medium))
+            VStack(alignment: .leading, spacing: 10) {
                 content
             }
-            .padding(16)
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(.primary.opacity(0.045), lineWidth: 1)
+            }
         }
     }
 }
@@ -158,10 +201,11 @@ private struct FieldRow<Content: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
             Text(label)
+                .font(.system(size: 13.5, weight: .regular))
                 .foregroundStyle(.secondary)
-                .frame(width: 160, alignment: .leading)
+                .frame(width: 152, alignment: .leading)
             content
                 .frame(maxWidth: 520, alignment: .leading)
         }
@@ -177,13 +221,13 @@ private struct StringListEditor: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(title)
-                    .font(.subheadline.weight(.medium))
+                    .font(.system(size: 13.5, weight: .medium))
                 Spacer()
                 Button { values.append("") } label: { Image(systemName: "plus") }
                     .buttonStyle(.borderless)
             }
             ForEach(values.indices, id: \.self) { index in
-                HStack {
+                HStack(spacing: 8) {
                     TextField(placeholder, text: Binding(
                         get: { values[index] },
                         set: { values[index] = $0 }
@@ -195,7 +239,7 @@ private struct StringListEditor: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 3)
     }
 }
 
@@ -206,7 +250,7 @@ private struct PortForwardEditor: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Rules")
-                    .font(.subheadline.weight(.medium))
+                    .font(.system(size: 13.5, weight: .medium))
                 Spacer()
                 Button { portForwards.append(PortForwardConfig()) } label: { Image(systemName: "plus") }
                     .buttonStyle(.borderless)

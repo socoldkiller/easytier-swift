@@ -13,6 +13,7 @@ public final class EasyTierAppStore {
     public var logLines: [String] = []
     public var isBusy = false
     public var lastError: String?
+    public var isShowingAbout = false
     public var isConfigServerConnected = false
     public var trafficSamplesByInstance: [String: [TrafficSample]] = [:]
 
@@ -40,12 +41,10 @@ public final class EasyTierAppStore {
     }
 
     public var selectedRunningInstance: NetworkInstance? {
-        guard !instances.isEmpty else { return nil }
-        if let config = selectedConfig {
-            if let byName = instances.first(where: { $0.name == config.network_name }) { return byName }
-            if let byID = instances.first(where: { $0.instance_id == config.instance_id }) { return byID }
-        }
-        return instances.first
+        guard let config = selectedConfig else { return nil }
+        if let byID = instances.first(where: { $0.instance_id == config.instance_id }) { return byID }
+        if let byName = instances.first(where: { $0.name == config.network_name }) { return byName }
+        return nil
     }
 
     public var selectedMemberStatuses: [NetworkMemberStatus] {
@@ -168,6 +167,10 @@ public final class EasyTierAppStore {
         }
     }
 
+    public func easyTierCoreVersion() async throws -> String {
+        try await client.version()
+    }
+
     public func applyMode(_ mode: AppMode) async {
         self.mode = mode
         save()
@@ -240,8 +243,8 @@ public final class EasyTierAppStore {
     }
 
     private func runtimeInfo(for instance: NetworkInstance, in infos: [String: NetworkInstanceRunningInfo]) -> NetworkInstanceRunningInfo? {
-        if let byName = infos[instance.name] { return byName }
         if let byID = infos[instance.instance_id] { return byID }
+        if let byName = infos[instance.name] { return byName }
         return nil
     }
 
