@@ -1,4 +1,3 @@
-import EasyTierSupport
 import Foundation
 
 public enum EasyTierCoreError: LocalizedError, Equatable {
@@ -58,6 +57,6 @@ public struct UnavailableEasyTierCoreClient: EasyTierCoreClient {
 
 public enum EasyTierClientFactory {
     public static func makeDefault() -> any EasyTierCoreClient {
-        StaticEasyTierFFIClient()
+        PrivilegedEasyTierClient()
     }
 }
