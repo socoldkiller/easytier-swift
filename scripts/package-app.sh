@@ -30,10 +30,19 @@ LOCAL_SIGNING_KEYCHAIN="$LOCAL_SIGNING_DIR/easytier-local-signing.keychain-db"
 LOCAL_SIGNING_PASSWORD_FILE="$LOCAL_SIGNING_DIR/keychain-password.txt"
 SECURITY_COMMAND_TIMEOUT="${EASYTIER_SECURITY_TIMEOUT:-120}"
 USING_LOCAL_CODESIGN=0
+TRUST_LOCAL_CODESIGN_CERT="${EASYTIER_TRUST_LOCAL_CODESIGN_CERT:-}"
 
 if [[ "$BUILD_CONFIGURATION" != "debug" && "$BUILD_CONFIGURATION" != "release" ]]; then
   echo "EASYTIER_BUILD_CONFIGURATION must be 'debug' or 'release'." >&2
   exit 1
+fi
+
+if [[ -z "$TRUST_LOCAL_CODESIGN_CERT" ]]; then
+  if [[ "${GITHUB_ACTIONS:-}" == "true" || "${CI:-}" == "true" ]]; then
+    TRUST_LOCAL_CODESIGN_CERT=0
+  else
+    TRUST_LOCAL_CODESIGN_CERT=1
+  fi
 fi
 
 identity_names_matching() {
@@ -97,13 +106,19 @@ add_local_keychain_to_search_list() {
 
 local_codesign_identity_is_valid() {
   [[ -f "$LOCAL_SIGNING_KEYCHAIN" ]] || return 1
-  security find-identity -v -p codesigning "$LOCAL_SIGNING_KEYCHAIN" 2>/dev/null \
-    | grep -F "\"$LOCAL_CODESIGN_IDENTITY\"" >/dev/null
+  security find-certificate -c "$LOCAL_CODESIGN_IDENTITY" "$LOCAL_SIGNING_KEYCHAIN" >/dev/null 2>&1
 }
 
 local_codesign_identity_hash() {
-  security find-identity -v -p codesigning "$LOCAL_SIGNING_KEYCHAIN" 2>/dev/null \
-    | awk -v name="$LOCAL_CODESIGN_IDENTITY" '$0 ~ "\\\"" name "\\\"" { print $2; exit }'
+  local identity_hash
+  identity_hash="$(security find-identity -v -p codesigning "$LOCAL_SIGNING_KEYCHAIN" 2>/dev/null \
+    | awk -v name="$LOCAL_CODESIGN_IDENTITY" '$0 ~ "\\\"" name "\\\"" { print $2; exit }')"
+  if [[ -n "$identity_hash" ]]; then
+    echo "$identity_hash"
+    return
+  fi
+  security find-certificate -c "$LOCAL_CODESIGN_IDENTITY" -Z "$LOCAL_SIGNING_KEYCHAIN" 2>/dev/null \
+    | awk '/SHA-1 hash:/ { print $3; exit }'
 }
 
 unlock_local_codesigning_keychain() {
@@ -181,8 +196,12 @@ EOF
     security unlock-keychain -p "$password" "$LOCAL_SIGNING_KEYCHAIN"
   security_step "Importing local code signing identity" \
     security import "$p12_path" -k "$LOCAL_SIGNING_KEYCHAIN" -P "$password" -A -T /usr/bin/codesign
-  security_step "Trusting local code signing certificate" \
-    security add-trusted-cert -r trustRoot -p codeSign -k "$LOCAL_SIGNING_KEYCHAIN" "$cert_path"
+  if [[ "$TRUST_LOCAL_CODESIGN_CERT" == "1" ]]; then
+    security_step "Trusting local code signing certificate" \
+      security add-trusted-cert -r trustRoot -p codeSign -k "$LOCAL_SIGNING_KEYCHAIN" "$cert_path"
+  else
+    echo "Skipping local code signing certificate trust in CI." >&2
+  fi
   security_step "Allowing codesign to use local signing key" \
     security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$LOCAL_SIGNING_KEYCHAIN"
 }
