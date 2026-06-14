@@ -52,6 +52,8 @@ jobs:
         run: brew install protobuf
 
       - name: Select Xcode 16
+        env:
+          EASYTIER_RUNNER_KIND: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted' && 'self-hosted' || 'github-hosted' }}
         run: |
           XCODE_APP="$(python3 - <<'PY'
           import glob
@@ -75,7 +77,20 @@ jobs:
             echo "Xcode 16 is required but was not found." >&2
             exit 1
           fi
-          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          TARGET_DEVELOPER_DIR="$XCODE_APP/Contents/Developer"
+          CURRENT_DEVELOPER_DIR="$(xcode-select -p 2>/dev/null || true)"
+          if [[ "$CURRENT_DEVELOPER_DIR" != "$TARGET_DEVELOPER_DIR" ]]; then
+            if [[ "$EASYTIER_RUNNER_KIND" == "self-hosted" ]] && ! sudo -n true 2>/dev/null; then
+              cat >&2 <<EOF
+          Self-hosted runner must select Xcode before running this workflow:
+
+            sudo xcode-select -s "$TARGET_DEVELOPER_DIR"
+
+          EOF
+              exit 1
+            fi
+            sudo xcode-select -s "$TARGET_DEVELOPER_DIR"
+          fi
           xcodebuild -version
           swift --version
 
