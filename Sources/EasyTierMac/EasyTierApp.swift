@@ -1,10 +1,15 @@
 import EasyTierCore
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 @main
 struct EasyTierApp: App {
     @State private var store = EasyTierAppStore()
+
+    init() {
+        Self.runHelperCommandIfRequested()
+    }
 
     var body: some Scene {
         Window("EasyTier", id: "main") {
@@ -42,6 +47,75 @@ struct EasyTierApp: App {
 
     private var allRunningInstancesConnected: Bool {
         store.instances.allSatisfy { store.instanceIsFullyConnected($0) }
+    }
+
+    private static func runHelperCommandIfRequested() {
+        let arguments = CommandLine.arguments
+        if arguments.contains("--ping-helper") {
+            runAsyncHelperCommandAndExit {
+                try await PrivilegedEasyTierClient().helperPingPayload()
+            }
+        }
+
+        if arguments.contains("--list-instances") {
+            runAsyncHelperCommandAndExit {
+                let instances = try await PrivilegedEasyTierClient().listInstances()
+                let data = try JSONEncoder().encode(instances)
+                return String(data: data, encoding: .utf8) ?? "[]"
+            }
+        }
+
+        if arguments.contains("--collect-network-infos") {
+            runAsyncHelperCommandAndExit {
+                let infos = try await PrivilegedEasyTierClient().collectNetworkInfos()
+                let data = try JSONEncoder().encode(infos)
+                return String(data: data, encoding: .utf8) ?? "{}"
+            }
+        }
+
+        guard arguments.contains("--repair-helper") || arguments.contains("--unregister-helper") || arguments.contains("--helper-status") else { return }
+
+        let service = SMAppService.daemon(plistName: EasyTierPrivilegedHelperConstants.launchDaemonPlistName)
+        do {
+            if arguments.contains("--unregister-helper") || arguments.contains("--repair-helper") {
+                try? service.unregister()
+            }
+            if arguments.contains("--repair-helper") {
+                try service.register()
+            }
+            print("helper status: \(Self.describe(service.status))")
+            Foundation.exit(EXIT_SUCCESS)
+        } catch {
+            fputs("helper command failed: \(error.localizedDescription)\n", stderr)
+            print("helper status: \(Self.describe(service.status))")
+            Foundation.exit(EXIT_FAILURE)
+        }
+    }
+
+    private static func describe(_ status: SMAppService.Status) -> String {
+        switch status {
+        case .notRegistered: "notRegistered"
+        case .enabled: "enabled"
+        case .requiresApproval: "requiresApproval"
+        case .notFound: "notFound"
+        @unknown default: "unknown"
+        }
+    }
+
+    private static func runAsyncHelperCommandAndExit(_ command: @escaping () async throws -> String) {
+        Task {
+            do {
+                let payload = try await command()
+                print(payload)
+                Foundation.exit(EXIT_SUCCESS)
+            } catch {
+                fputs("helper command failed: \(error.localizedDescription)\n", stderr)
+                Foundation.exit(EXIT_FAILURE)
+            }
+        }
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 30))
+        fputs("helper command timed out\n", stderr)
+        Foundation.exit(EXIT_FAILURE)
     }
 }
 

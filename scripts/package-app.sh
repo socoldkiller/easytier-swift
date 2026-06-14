@@ -11,14 +11,29 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 LAUNCH_DAEMONS_DIR="$CONTENTS_DIR/Library/LaunchDaemons"
 BUNDLE_IDENTIFIER="com.kkrainbow.easytier.mac"
 HELPER_IDENTIFIER="com.kkrainbow.easytier.mac.helper"
-VALIDATOR_IDENTIFIER="com.kkrainbow.easytier.mac.validator"
 BUILD_NUMBER="${EASYTIER_BUILD_NUMBER:-$(date -u +%Y%m%d%H%M%S)}"
 BUILD_CONFIGURATION="${EASYTIER_BUILD_CONFIGURATION:-debug}"
+CODE_SIGN_IDENTITY="${EASYTIER_CODESIGN_IDENTITY:--}"
+REQUIRE_DISTRIBUTION_SIGNING="${EASYTIER_REQUIRE_DISTRIBUTION_SIGNING:-0}"
+CODE_SIGN_TIMESTAMP="${EASYTIER_CODESIGN_TIMESTAMP:-1}"
 
 if [[ "$BUILD_CONFIGURATION" != "debug" && "$BUILD_CONFIGURATION" != "release" ]]; then
   echo "EASYTIER_BUILD_CONFIGURATION must be 'debug' or 'release'." >&2
   exit 1
 fi
+
+if [[ "$REQUIRE_DISTRIBUTION_SIGNING" == "1" && ( -z "$CODE_SIGN_IDENTITY" || "$CODE_SIGN_IDENTITY" == "-" ) ]]; then
+  echo "Release packaging requires EASYTIER_CODESIGN_IDENTITY with a Developer ID Application certificate." >&2
+  exit 1
+fi
+
+codesign_signed_args() {
+  if [[ "$CODE_SIGN_TIMESTAMP" == "1" ]]; then
+    echo --timestamp --options runtime --sign "$CODE_SIGN_IDENTITY"
+  else
+    echo --options runtime --sign "$CODE_SIGN_IDENTITY"
+  fi
+}
 
 git_revision() {
   local path="$1"
@@ -74,18 +89,19 @@ cd "$ROOT_DIR"
 GUI_COMMIT="$(git_revision "$ROOT_DIR")"
 CORE_TAG="$(git_exact_tag "$ROOT_DIR/Vendor/EasyTier")"
 CORE_COMMIT="$(git_revision "$ROOT_DIR/Vendor/EasyTier")"
+BUILD_DIR="$(swift build --configuration "$BUILD_CONFIGURATION" --show-bin-path)"
+rm -f \
+  "$BUILD_DIR/EasyTierMac" \
+  "$BUILD_DIR/EasyTierPrivilegedHelper"
 
 swift build --configuration "$BUILD_CONFIGURATION" --product EasyTierMac
-swift build --configuration "$BUILD_CONFIGURATION" --product EasyTierValidator
 swift build --configuration "$BUILD_CONFIGURATION" --product EasyTierPrivilegedHelper
-BUILD_DIR="$(swift build --configuration "$BUILD_CONFIGURATION" --show-bin-path)"
 
 rm -rf "$APP_DIR" "$STAGING_DIR"
 mkdir -p "$APP_PRODUCTS_DIR"
 mkdir -p "$MACOS_DIR"
 mkdir -p "$LAUNCH_DAEMONS_DIR"
 cp "$BUILD_DIR/EasyTierMac" "$MACOS_DIR/EasyTierMac"
-cp "$BUILD_DIR/EasyTierValidator" "$MACOS_DIR/EasyTierValidator"
 cp "$BUILD_DIR/EasyTierPrivilegedHelper" "$MACOS_DIR/EasyTierPrivilegedHelper"
 
 cat > "$CONTENTS_DIR/Info.plist" <<PLIST
@@ -158,10 +174,17 @@ PLIST
 xattr -cr "$STAGING_DIR"
 clear_codesign_blocking_xattrs "$STAGING_DIR"
 clear_finder_info "$STAGING_DIR"
-codesign --force --sign - --identifier "$VALIDATOR_IDENTIFIER" "$MACOS_DIR/EasyTierValidator"
-codesign --force --sign - --identifier "$HELPER_IDENTIFIER" "$MACOS_DIR/EasyTierPrivilegedHelper"
+if [[ "$CODE_SIGN_IDENTITY" == "-" ]]; then
+  codesign --force --sign "$CODE_SIGN_IDENTITY" --identifier "$HELPER_IDENTIFIER" "$MACOS_DIR/EasyTierPrivilegedHelper"
+else
+  codesign --force $(codesign_signed_args) --identifier "$HELPER_IDENTIFIER" "$MACOS_DIR/EasyTierPrivilegedHelper"
+fi
 clear_finder_info "$STAGING_DIR"
-codesign --force --sign - --identifier "$BUNDLE_IDENTIFIER" "$STAGING_DIR"
+if [[ "$CODE_SIGN_IDENTITY" == "-" ]]; then
+  codesign --force --sign "$CODE_SIGN_IDENTITY" --identifier "$BUNDLE_IDENTIFIER" "$STAGING_DIR"
+else
+  codesign --force $(codesign_signed_args) --identifier "$BUNDLE_IDENTIFIER" "$STAGING_DIR"
+fi
 mv "$STAGING_DIR" "$APP_DIR"
 xattr -cr "$APP_DIR"
 clear_codesign_blocking_xattrs "$APP_DIR"

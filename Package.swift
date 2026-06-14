@@ -10,7 +10,6 @@ let package = Package(
     products: [
         .library(name: "EasyTierCore", targets: ["EasyTierCore"]),
         .executable(name: "EasyTierMac", targets: ["EasyTierMac"]),
-        .executable(name: "EasyTierValidator", targets: ["EasyTierValidator"]),
         .executable(name: "EasyTierPrivilegedHelper", targets: ["EasyTierPrivilegedHelper"]),
     ],
     dependencies: [
@@ -40,12 +39,17 @@ let package = Package(
             dependencies: ["EasyTierCore"]
         ),
         .executableTarget(
-            name: "EasyTierValidator",
-            dependencies: ["EasyTierCore"]
-        ),
-        .executableTarget(
             name: "EasyTierPrivilegedHelper",
-            dependencies: ["EasyTierCore"]
+            dependencies: ["EasyTierCore"],
+            exclude: ["Info.plist"],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "Sources/EasyTierPrivilegedHelper/Info.plist",
+                ]),
+            ]
         ),
         .testTarget(
             name: "EasyTierCoreTests",

@@ -9,11 +9,7 @@ public final class StaticEasyTierFFIClient: EasyTierCoreClient, @unchecked Senda
     }
 
     public func validate(toml: String) async throws {
-        if ProcessInfo.processInfo.environment["EASYTIER_VALIDATE_IN_PROCESS"] == "1" {
-            try Self.validateDirect(toml: toml)
-            return
-        }
-        try await Self.validateWithHelper(toml: toml)
+        try Self.validateDirect(toml: toml)
     }
 
     public func run(config: NetworkConfig) async throws {
@@ -100,56 +96,6 @@ public final class StaticEasyTierFFIClient: EasyTierCoreClient, @unchecked Senda
 
     public static func validateDirect(toml: String) throws {
         try StaticEasyTierFFIClient().ffiCall(parse_config, withCString: toml)
-    }
-
-    private static func validateWithHelper(toml: String) async throws {
-        guard let helperURL = validatorExecutableURL() else {
-            throw EasyTierCoreError.operationFailed("EasyTierValidator helper is missing. Rebuild the app with scripts/package-app.sh.")
-        }
-
-        try await Task.detached(priority: .userInitiated) {
-            let process = Process()
-            process.executableURL = helperURL
-            process.arguments = ["validate"]
-
-            var environment = ProcessInfo.processInfo.environment
-            environment["EASYTIER_VALIDATE_IN_PROCESS"] = "1"
-            process.environment = environment
-
-            let stdin = Pipe()
-            let stdout = Pipe()
-            let stderr = Pipe()
-            process.standardInput = stdin
-            process.standardOutput = stdout
-            process.standardError = stderr
-
-            try process.run()
-            stdin.fileHandleForWriting.write(Data(toml.utf8))
-            try? stdin.fileHandleForWriting.close()
-            process.waitUntilExit()
-
-            let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let message = [error, output]
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .first { !$0.isEmpty }
-
-            guard process.terminationReason == .exit, process.terminationStatus == 0 else {
-                if process.terminationReason == .uncaughtSignal {
-                    throw EasyTierCoreError.operationFailed("EasyTier config validation crashed in helper process (signal \(process.terminationStatus)).")
-                }
-                throw EasyTierCoreError.operationFailed(message ?? "EasyTier config validation failed.")
-            }
-        }.value
-    }
-
-    private static func validatorExecutableURL() -> URL? {
-        guard let executableURL = Bundle.main.executableURL else { return nil }
-        let helperURL = executableURL.deletingLastPathComponent().appendingPathComponent("EasyTierValidator")
-        if FileManager.default.isExecutableFile(atPath: helperURL.path) {
-            return helperURL
-        }
-        return nil
     }
 
     private func ffiCall(_ body: (UnsafePointer<CChar>?) -> CInt, withCString value: String) throws {

@@ -52,6 +52,11 @@ final class PermissionController {
         }
     }
 
+    func markHelperUnavailable(_ message: String) {
+        state = .error
+        detail = message
+    }
+
     func openSystemSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
             NSWorkspace.shared.open(url)

@@ -234,14 +234,24 @@ struct ContentView: View {
 
     private func repairPrivilegedHelperIfNeeded() async {
         guard permissionController.state == .enabled else { return }
+        let client = PrivilegedEasyTierClient()
         do {
-            let payload = try await PrivilegedEasyTierClient().helperPingPayload()
+            let payload = try await client.helperPingPayload()
             guard payload != EasyTierPrivilegedHelperConstants.pingPayload else { return }
             permissionController.reinstall()
-            permissionController.refresh()
         } catch {
             permissionController.reinstall()
-            permissionController.refresh()
+        }
+
+        do {
+            let payload = try await client.helperPingPayload()
+            if payload == EasyTierPrivilegedHelperConstants.pingPayload {
+                permissionController.refresh()
+            } else {
+                permissionController.markHelperUnavailable("Privileged helper is registered but did not match this app version.")
+            }
+        } catch {
+            permissionController.markHelperUnavailable("Privileged helper is registered but launchd could not start it. Reinstall EasyTier from a Developer ID signed and notarized build.")
         }
     }
 }

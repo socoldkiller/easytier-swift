@@ -79,15 +79,70 @@ jobs:
       - name: Test Swift package
         run: swift test --configuration release
 
+      - name: Import Developer ID certificate
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64 }}
+          APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          if [[ -z "$APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64" || -z "$APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD" || -z "$APPLE_KEYCHAIN_PASSWORD" ]]; then
+            echo "Developer ID certificate secrets are required for tag releases." >&2
+            exit 1
+          fi
+
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id-application.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/easytier-signing.keychain-db"
+
+          printf '%s' "$APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/[" ]//g')
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
       - name: Package app
-        run: ./scripts/package-app.sh
+        env:
+          EASYTIER_CODESIGN_IDENTITY: ${{ secrets.APPLE_CODESIGN_IDENTITY }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            export EASYTIER_REQUIRE_DISTRIBUTION_SIGNING=1
+          fi
+          ./scripts/package-app.sh
 
       - name: Verify app bundle
         run: |
           test -x "$EASYTIER_EXPORT_APP_DIR/Contents/MacOS/EasyTierMac"
-          test -x "$EASYTIER_EXPORT_APP_DIR/Contents/MacOS/EasyTierValidator"
           test -x "$EASYTIER_EXPORT_APP_DIR/Contents/MacOS/EasyTierPrivilegedHelper"
           codesign --verify --deep --strict --verbose=2 "$EASYTIER_EXPORT_APP_DIR"
+
+      - name: Notarize release app
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          if [[ -z "$APPLE_NOTARY_KEY" || -z "$APPLE_NOTARY_KEY_ID" || -z "$APPLE_NOTARY_ISSUER_ID" ]]; then
+            echo "Apple notarization secrets are required for tag releases." >&2
+            exit 1
+          fi
+
+          mkdir -p .build/artifacts "$RUNNER_TEMP/notary"
+          NOTARY_KEY_PATH="$RUNNER_TEMP/notary/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
+          NOTARY_ZIP_PATH="$RUNNER_TEMP/EasyTier-notary.zip"
+          printf '%s' "$APPLE_NOTARY_KEY" > "$NOTARY_KEY_PATH"
+          ditto -c -k --keepParent --sequesterRsrc --zlibCompressionLevel 9 \
+            "$EASYTIER_EXPORT_APP_DIR" \
+            "$NOTARY_ZIP_PATH"
+          xcrun notarytool submit "$NOTARY_ZIP_PATH" \
+            --key "$NOTARY_KEY_PATH" \
+            --key-id "$APPLE_NOTARY_KEY_ID" \
+            --issuer "$APPLE_NOTARY_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$EASYTIER_EXPORT_APP_DIR"
+          spctl -a -vvv -t exec "$EASYTIER_EXPORT_APP_DIR"
 
       - name: Archive app
         run: |
