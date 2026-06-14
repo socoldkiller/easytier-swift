@@ -161,25 +161,39 @@ jobs:
       - name: Archive app
         run: |
           mkdir -p .build/artifacts
-          ditto -c -k --keepParent --sequesterRsrc --zlibCompressionLevel 9 \
-            "$EASYTIER_EXPORT_APP_DIR" \
-            ".build/artifacts/EasyTier-macOS-${{ runner.arch }}.app.zip"
+          INSTALL_NOTES_PATH=".build/artifacts/SELF_SIGNED_INSTALL.txt"
           if [[ -f .build/artifacts/EasyTierLocalCodeSigning.cer ]]; then
-            cat > .build/artifacts/SELF_SIGNED_INSTALL.txt <<'EOF'
+            cat > "$INSTALL_NOTES_PATH" <<'EOF'
           EasyTier self-signed developer-mode build
 
           This artifact is not Developer ID signed or Apple notarized.
 
           To try the privileged helper on macOS:
-          1. Import EasyTierLocalCodeSigning.cer into Keychain Access.
-          2. Set the certificate to Always Trust for Code Signing.
-          3. Open EasyTier.app with Control-click > Open, or use Privacy & Security > Open Anyway if macOS blocks first launch.
-          4. In EasyTier, click Install Helper.
-          5. If macOS asks, allow EasyTier in System Settings > General > Login Items & Extensions.
+          1. Import and trust EasyTierLocalCodeSigning.cer for Code Signing.
+          2. Quit EasyTier if it is running.
+          3. When replacing another self-signed test build, run `sfltool resetbtm` to clear stale ServiceManagement records.
+          4. Open EasyTier-macOS-*.dmg and drag EasyTier.app to Applications.
+          5. Run `xattr -cr ~/Applications/EasyTier.app` if macOS copied quarantine attributes.
+          6. Open EasyTier.app from Applications with Control-click > Open, or use Privacy & Security > Open Anyway if macOS blocks first launch.
+          7. In EasyTier, click Install Helper.
+          8. If macOS asks, allow EasyTier in System Settings > General > Login Items & Extensions.
 
           Do not use this self-signed build as a production release.
           EOF
+          else
+            INSTALL_NOTES_PATH=""
           fi
+
+          EASYTIER_DMG_CODESIGN_CERT_PATH=".build/artifacts/EasyTierLocalCodeSigning.cer" \
+          EASYTIER_DMG_INSTALL_NOTES_PATH="$INSTALL_NOTES_PATH" \
+            ./scripts/create-dmg.sh \
+              "$EASYTIER_EXPORT_APP_DIR" \
+              ".build/artifacts/EasyTier-macOS-${{ runner.arch }}.dmg"
+
+          # Only upload the installable archive and helper files. Uploading the
+          # loose .app directory makes artifact installs ambiguous and can leave
+          # ServiceManagement records pointing at the Downloads extraction path.
+          rm -rf "$EASYTIER_EXPORT_APP_DIR"
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v4
@@ -213,4 +227,4 @@ jobs:
         run: |
           gh release view "$TAG_NAME" --repo "$REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$TAG_NAME" --repo "$REPOSITORY" --title "$TAG_NAME" --notes "Automated EasyTier macOS app build."
-          gh release upload "$TAG_NAME" .build/release-artifacts/*.zip --repo "$REPOSITORY" --clobber
+          gh release upload "$TAG_NAME" .build/release-artifacts/*.dmg --repo "$REPOSITORY" --clobber

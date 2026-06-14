@@ -39,8 +39,9 @@ EASYTIER_BUILD_CONFIGURATION=release ./scripts/package-app.sh
 
 Pull request and branch artifacts are self-signed developer-mode builds. They
 are not Developer ID signed or Apple notarized, but the artifact includes
-`EasyTierLocalCodeSigning.cer` and `SELF_SIGNED_INSTALL.txt` so technical users
-can explicitly trust the self-signed certificate and test the privileged helper.
+`EasyTier-macOS-*.dmg`, `EasyTierLocalCodeSigning.cer`, and
+`SELF_SIGNED_INSTALL.txt` so technical users can explicitly trust the
+self-signed certificate and test the privileged helper.
 Tag releases require Developer ID signing and notarization secrets.
 
 For a self-signed artifact, install and trust the included certificate before
@@ -54,10 +55,14 @@ security add-trusted-cert \
   EasyTierLocalCodeSigning.cer
 ```
 
-Then open `EasyTier.app` with Control-click > Open, click **Install Helper** in
-EasyTier, and approve EasyTier in System Settings > General > Login Items &
-Extensions if macOS asks. This self-signed path is for developer-mode testing;
-normal public distribution still requires Developer ID signing and notarization.
+When replacing another self-signed development build, quit EasyTier and run
+`sfltool resetbtm` once to clear stale macOS ServiceManagement records. Then
+open `EasyTier-macOS-*.dmg`, drag `EasyTier.app` to Applications, open
+`EasyTier.app` from Applications with Control-click > Open, click **Install
+Helper** in EasyTier, and approve EasyTier in System Settings > General > Login
+Items & Extensions if macOS asks. This self-signed path is for developer-mode
+testing; normal public distribution still requires Developer ID signing and
+notarization.
 
 For a local development app that only needs bundle/symbol verification, package
 the app normally:
