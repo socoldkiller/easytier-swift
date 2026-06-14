@@ -106,30 +106,21 @@ jobs:
         env:
           EASYTIER_CODESIGN_IDENTITY: ${{ secrets.APPLE_CODESIGN_IDENTITY }}
         run: |
+          mkdir -p .build/artifacts
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             export EASYTIER_REQUIRE_DISTRIBUTION_SIGNING=1
+          else
+            export EASYTIER_LOCAL_SIGNING_DIR="$RUNNER_TEMP/EasyTierLocalSigning"
+            export EASYTIER_EXPORT_CODESIGN_CERT_PATH="$GITHUB_WORKSPACE/.build/artifacts/EasyTierLocalCodeSigning.cer"
           fi
           ./scripts/package-app.sh
 
       - name: Verify app bundle
         run: |
-          test -x "$EASYTIER_EXPORT_APP_DIR/Contents/MacOS/EasyTierMac"
-          test -x "$EASYTIER_EXPORT_APP_DIR/Contents/MacOS/EasyTierPrivilegedHelper"
-          test ! -e "$EASYTIER_EXPORT_APP_DIR/Contents/MacOS/EasyTierValidator"
-
-          helper_info_plist="$(codesign -dv --verbose=4 "$EASYTIER_EXPORT_APP_DIR/Contents/MacOS/EasyTierPrivilegedHelper" 2>&1 | sed -n '/^Info.plist/p')"
-          if [[ -z "$helper_info_plist" || "$helper_info_plist" == *"not bound"* ]]; then
-            echo "Privileged helper must embed an Info.plist." >&2
-            exit 1
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            export EASYTIER_VERIFY_INSTALLABLE_HELPER=1
           fi
-
-          helper_bundle_identifier="$(sfltool csinfo "$EASYTIER_EXPORT_APP_DIR/Contents/MacOS/EasyTierPrivilegedHelper" 2>/dev/null | sed -n 's/^Bundle Identifier: //p')"
-          if [[ "$helper_bundle_identifier" != "com.kkrainbow.easytier.mac.helper" ]]; then
-            echo "Unexpected helper bundle identifier: $helper_bundle_identifier" >&2
-            exit 1
-          fi
-
-          codesign --verify --deep --strict --verbose=2 "$EASYTIER_EXPORT_APP_DIR"
+          ./scripts/verify-app.sh "$EASYTIER_EXPORT_APP_DIR"
 
       - name: Notarize release app
         if: startsWith(github.ref, 'refs/tags/')
@@ -164,12 +155,28 @@ jobs:
           ditto -c -k --keepParent --sequesterRsrc --zlibCompressionLevel 9 \
             "$EASYTIER_EXPORT_APP_DIR" \
             ".build/artifacts/EasyTier-macOS-${{ runner.arch }}.app.zip"
+          if [[ -f .build/artifacts/EasyTierLocalCodeSigning.cer ]]; then
+            cat > .build/artifacts/SELF_SIGNED_INSTALL.txt <<'EOF'
+          EasyTier self-signed developer-mode build
+
+          This artifact is not Developer ID signed or Apple notarized.
+
+          To try the privileged helper on macOS:
+          1. Import EasyTierLocalCodeSigning.cer into Keychain Access.
+          2. Set the certificate to Always Trust for Code Signing.
+          3. Open EasyTier.app with Control-click > Open, or use Privacy & Security > Open Anyway if macOS blocks first launch.
+          4. In EasyTier, click Install Helper.
+          5. If macOS asks, allow EasyTier in System Settings > General > Login Items & Extensions.
+
+          Do not use this self-signed build as a production release.
+          EOF
+          fi
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v4
         with:
           name: EasyTier-macOS-${{ runner.arch }}
-          path: .build/artifacts/EasyTier-macOS-${{ runner.arch }}.app.zip
+          path: .build/artifacts/*
           if-no-files-found: error
           retention-days: 14
 

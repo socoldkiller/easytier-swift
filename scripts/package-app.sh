@@ -2,10 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_PRODUCTS_DIR="$ROOT_DIR/.build/AppProducts"
+APP_PRODUCTS_DIR="${EASYTIER_APP_PRODUCTS_DIR:-/tmp/EasyTierAppProducts}"
 APP_DIR="$APP_PRODUCTS_DIR/EasyTier.app"
 STAGING_DIR="$APP_PRODUCTS_DIR/EasyTier.staging"
-EXPORT_APP_DIR="${EASYTIER_EXPORT_APP_DIR:-/tmp/EasyTier.app}"
+EXPORT_APP_DIR="${EASYTIER_EXPORT_APP_DIR:-$HOME/Applications/EasyTier.app}"
+EXPORT_CODESIGN_CERT_PATH="${EASYTIER_EXPORT_CODESIGN_CERT_PATH:-}"
 CONTENTS_DIR="$STAGING_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 LAUNCH_DAEMONS_DIR="$CONTENTS_DIR/Library/LaunchDaemons"
@@ -14,11 +15,148 @@ HELPER_IDENTIFIER="com.kkrainbow.easytier.mac.helper"
 BUILD_NUMBER="${EASYTIER_BUILD_NUMBER:-$(date -u +%Y%m%d%H%M%S)}"
 BUILD_CONFIGURATION="${EASYTIER_BUILD_CONFIGURATION:-debug}"
 CODE_SIGN_IDENTITY="${EASYTIER_CODESIGN_IDENTITY:--}"
+CODE_SIGN_KEYCHAIN="${EASYTIER_CODESIGN_KEYCHAIN:-}"
 REQUIRE_DISTRIBUTION_SIGNING="${EASYTIER_REQUIRE_DISTRIBUTION_SIGNING:-0}"
 CODE_SIGN_TIMESTAMP="${EASYTIER_CODESIGN_TIMESTAMP:-1}"
+CLEAN_HELPER_STATE="${EASYTIER_CLEAN_HELPER_STATE:-}"
+ALLOW_UNINSTALLABLE_HELPER="${EASYTIER_ALLOW_UNINSTALLABLE_HELPER:-0}"
+AUTO_CODESIGN_IDENTITY="${EASYTIER_AUTO_CODESIGN_IDENTITY:-1}"
+RESET_BTM_STATE="${EASYTIER_RESET_BTM:-0}"
+REQUIRE_TEAM_ID="${EASYTIER_REQUIRE_TEAM_ID:-$REQUIRE_DISTRIBUTION_SIGNING}"
+USE_LOCAL_CODESIGN="${EASYTIER_USE_LOCAL_CODESIGN:-1}"
+LOCAL_CODESIGN_IDENTITY="${EASYTIER_LOCAL_CODESIGN_IDENTITY:-EasyTierLocalCodeSigning}"
+LOCAL_SIGNING_DIR="${EASYTIER_LOCAL_SIGNING_DIR:-$HOME/Library/Application Support/easytier/LocalSigning}"
+LOCAL_SIGNING_KEYCHAIN="$LOCAL_SIGNING_DIR/easytier-local-signing.keychain-db"
+LOCAL_SIGNING_PASSWORD_FILE="$LOCAL_SIGNING_DIR/keychain-password.txt"
 
 if [[ "$BUILD_CONFIGURATION" != "debug" && "$BUILD_CONFIGURATION" != "release" ]]; then
   echo "EASYTIER_BUILD_CONFIGURATION must be 'debug' or 'release'." >&2
+  exit 1
+fi
+
+identity_names_matching() {
+  local pattern="$1"
+  security find-identity -v -p codesigning 2>/dev/null \
+    | sed -n 's/^ *[0-9]*) [A-Fa-f0-9]* "\(.*\)"$/\1/p' \
+    | grep -E "$pattern" || true
+}
+
+local_codesign_identity_is_valid() {
+  [[ -f "$LOCAL_SIGNING_KEYCHAIN" ]] || return 1
+  security find-identity -v -p codesigning "$LOCAL_SIGNING_KEYCHAIN" 2>/dev/null \
+    | grep -F "\"$LOCAL_CODESIGN_IDENTITY\"" >/dev/null
+}
+
+unlock_local_codesigning_keychain() {
+  [[ -f "$LOCAL_SIGNING_PASSWORD_FILE" ]] || return 1
+  local password
+  password="$(cat "$LOCAL_SIGNING_PASSWORD_FILE")"
+  security unlock-keychain -p "$password" "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
+  security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
+}
+
+create_local_codesigning_identity() {
+  local password key_path cert_path p12_path openssl_config
+
+  rm -rf "$LOCAL_SIGNING_DIR"
+  mkdir -p "$LOCAL_SIGNING_DIR"
+  chmod 700 "$LOCAL_SIGNING_DIR"
+
+  password="$(uuidgen)-$(uuidgen)"
+  key_path="$LOCAL_SIGNING_DIR/easytier-local.key"
+  cert_path="$LOCAL_SIGNING_DIR/easytier-local.crt"
+  p12_path="$LOCAL_SIGNING_DIR/easytier-local.p12"
+  openssl_config="$LOCAL_SIGNING_DIR/openssl.cnf"
+
+  printf '%s' "$password" > "$LOCAL_SIGNING_PASSWORD_FILE"
+  chmod 600 "$LOCAL_SIGNING_PASSWORD_FILE"
+
+  cat > "$openssl_config" <<EOF
+[ req ]
+default_bits = 2048
+prompt = no
+default_md = sha256
+distinguished_name = dn
+x509_extensions = v3_req
+
+[ dn ]
+CN = $LOCAL_CODESIGN_IDENTITY
+O = EasyTier Local Development
+
+[ v3_req ]
+basicConstraints = critical, CA:true
+keyUsage = critical, digitalSignature, keyCertSign
+extendedKeyUsage = codeSigning
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer
+EOF
+
+  openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+    -keyout "$key_path" \
+    -out "$cert_path" \
+    -config "$openssl_config" >/dev/null 2>&1
+  openssl pkcs12 -export -legacy \
+    -inkey "$key_path" \
+    -in "$cert_path" \
+    -out "$p12_path" \
+    -passout pass:"$password" \
+    -name "$LOCAL_CODESIGN_IDENTITY" >/dev/null 2>&1
+
+  security create-keychain -p "$password" "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
+  security set-keychain-settings -lut 21600 "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
+  security unlock-keychain -p "$password" "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
+  security import "$p12_path" -k "$LOCAL_SIGNING_KEYCHAIN" -P "$password" -T /usr/bin/codesign >/dev/null
+  security add-trusted-cert -r trustRoot -p codeSign -k "$LOCAL_SIGNING_KEYCHAIN" "$cert_path" >/dev/null
+  security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
+}
+
+use_local_codesigning_identity() {
+  if ! unlock_local_codesigning_keychain || ! local_codesign_identity_is_valid; then
+    echo "Creating local EasyTier development code signing identity: $LOCAL_CODESIGN_IDENTITY" >&2
+    create_local_codesigning_identity
+  fi
+
+  unlock_local_codesigning_keychain
+  if ! local_codesign_identity_is_valid; then
+    echo "Local code signing identity is not valid: $LOCAL_CODESIGN_IDENTITY" >&2
+    exit 1
+  fi
+
+  CODE_SIGN_IDENTITY="$LOCAL_CODESIGN_IDENTITY"
+  CODE_SIGN_KEYCHAIN="$LOCAL_SIGNING_KEYCHAIN"
+  CODE_SIGN_TIMESTAMP=0
+  echo "Using local development code signing identity: $CODE_SIGN_IDENTITY" >&2
+}
+
+select_codesign_identity() {
+  if [[ "$REQUIRE_DISTRIBUTION_SIGNING" == "1" ]]; then
+    identity_names_matching '^Developer ID Application:' | head -n 1
+    return
+  fi
+
+  {
+    identity_names_matching '^Apple Development:'
+    identity_names_matching '^Developer ID Application:'
+    identity_names_matching '^Mac Developer:'
+  } | head -n 1
+}
+
+if [[ "$CODE_SIGN_IDENTITY" == "-" && "$AUTO_CODESIGN_IDENTITY" == "1" ]]; then
+  AUTO_SELECTED_IDENTITY="$(select_codesign_identity)"
+  if [[ -n "$AUTO_SELECTED_IDENTITY" ]]; then
+    CODE_SIGN_IDENTITY="$AUTO_SELECTED_IDENTITY"
+    echo "Using code signing identity: $CODE_SIGN_IDENTITY" >&2
+  elif [[ "$ALLOW_UNINSTALLABLE_HELPER" != "1" && "$USE_LOCAL_CODESIGN" == "1" && "$REQUIRE_DISTRIBUTION_SIGNING" != "1" ]]; then
+    use_local_codesigning_identity
+  fi
+fi
+
+if [[ "$CODE_SIGN_IDENTITY" == "$LOCAL_CODESIGN_IDENTITY" && "$CODE_SIGN_KEYCHAIN" == "" ]]; then
+  use_local_codesigning_identity
+fi
+
+if [[ "$REQUIRE_DISTRIBUTION_SIGNING" == "1" && "$ALLOW_UNINSTALLABLE_HELPER" == "1" ]]; then
+  echo "EASYTIER_ALLOW_UNINSTALLABLE_HELPER cannot be used when EASYTIER_REQUIRE_DISTRIBUTION_SIGNING=1." >&2
   exit 1
 fi
 
@@ -27,17 +165,119 @@ if [[ "$REQUIRE_DISTRIBUTION_SIGNING" == "1" && ( -z "$CODE_SIGN_IDENTITY" || "$
   exit 1
 fi
 
+if [[ "$ALLOW_UNINSTALLABLE_HELPER" != "1" && ( -z "$CODE_SIGN_IDENTITY" || "$CODE_SIGN_IDENTITY" == "-" ) ]]; then
+  cat >&2 <<EOF
+Packaging an installable privileged helper requires a code signing identity.
+
+Install an Apple Development or Developer ID Application certificate, or allow
+this script to use a local development identity by leaving
+EASYTIER_USE_LOCAL_CODESIGN=1.
+
+For CI/symbol verification only, set EASYTIER_ALLOW_UNINSTALLABLE_HELPER=1.
+EOF
+  exit 1
+fi
+
+if [[ -z "$CLEAN_HELPER_STATE" ]]; then
+  if [[ "$REQUIRE_DISTRIBUTION_SIGNING" != "1" ]]; then
+    CLEAN_HELPER_STATE=1
+  else
+    CLEAN_HELPER_STATE=0
+  fi
+fi
+
+signature_field() {
+  local path="$1"
+  local field="$2"
+  codesign -dv --verbose=4 "$path" 2>&1 | sed -n "s/^$field=//p" | tail -n 1
+}
+
+validate_installable_helper_signature() {
+  local app_path="$1"
+  local helper_path="$app_path/Contents/MacOS/EasyTierPrivilegedHelper"
+  local app_team helper_team
+
+  if [[ "$ALLOW_UNINSTALLABLE_HELPER" != "1" ]]; then
+    if codesign -dv --verbose=4 "$app_path" 2>&1 | grep -q '^Signature=adhoc'; then
+      echo "Packaged EasyTier.app is ad-hoc signed and cannot install a privileged helper." >&2
+      exit 1
+    fi
+    if codesign -dv --verbose=4 "$helper_path" 2>&1 | grep -q '^Signature=adhoc'; then
+      echo "Packaged privileged helper is ad-hoc signed and cannot be launched by SMAppService." >&2
+      exit 1
+    fi
+  fi
+
+  if [[ "$REQUIRE_TEAM_ID" != "1" ]]; then
+    return
+  fi
+
+  app_team="$(signature_field "$app_path" TeamIdentifier)"
+  helper_team="$(signature_field "$helper_path" TeamIdentifier)"
+
+  if [[ -z "$app_team" || "$app_team" == "not set" || -z "$helper_team" || "$helper_team" == "not set" ]]; then
+    cat >&2 <<EOF
+Packaged EasyTier.app is signed, but app/helper do not have an Apple Team ID.
+
+Developer ID release builds must sign the app and privileged helper with an Apple-issued identity from the same team.
+
+App TeamIdentifier: ${app_team:-missing}
+Helper TeamIdentifier: ${helper_team:-missing}
+EOF
+    exit 1
+  fi
+
+  if [[ "$app_team" != "$helper_team" ]]; then
+    cat >&2 <<EOF
+Packaged EasyTier.app has mismatched app/helper Team IDs.
+
+App TeamIdentifier: $app_team
+Helper TeamIdentifier: $helper_team
+
+Sign both binaries with the same Apple team so SMAppService can launch the privileged helper.
+EOF
+    exit 1
+  fi
+}
+
 sign_macho() {
   local identifier="$1"
   local path="$2"
+  local entitlements="${3:-}"
+  local codesign_args=(--force)
 
-  if [[ "$CODE_SIGN_IDENTITY" == "-" ]]; then
-    codesign --force --sign "$CODE_SIGN_IDENTITY" --identifier "$identifier" "$path"
-  elif [[ "$CODE_SIGN_TIMESTAMP" == "1" ]]; then
-    codesign --force --timestamp --options runtime --sign "$CODE_SIGN_IDENTITY" --identifier "$identifier" "$path"
-  else
-    codesign --force --options runtime --sign "$CODE_SIGN_IDENTITY" --identifier "$identifier" "$path"
+  if [[ "$CODE_SIGN_IDENTITY" != "-" && "$CODE_SIGN_TIMESTAMP" == "1" ]]; then
+    codesign_args+=(--timestamp --options runtime)
+  elif [[ "$CODE_SIGN_IDENTITY" != "-" ]]; then
+    codesign_args+=(--options runtime)
   fi
+
+  if [[ -n "$CODE_SIGN_KEYCHAIN" ]]; then
+    codesign_args+=(--keychain "$CODE_SIGN_KEYCHAIN")
+  fi
+
+  codesign_args+=(--sign "$CODE_SIGN_IDENTITY" --identifier "$identifier")
+
+  if [[ -n "$entitlements" ]]; then
+    codesign_args+=(--entitlements "$entitlements")
+  fi
+
+  codesign "${codesign_args[@]}" "$path"
+}
+
+export_codesigning_certificate_if_requested() {
+  if [[ -z "$EXPORT_CODESIGN_CERT_PATH" ]]; then
+    return
+  fi
+  if [[ "$CODE_SIGN_IDENTITY" != "$LOCAL_CODESIGN_IDENTITY" ]]; then
+    echo "EASYTIER_EXPORT_CODESIGN_CERT_PATH is only supported for the local self-signed development identity." >&2
+    return
+  fi
+  local cert_path="$LOCAL_SIGNING_DIR/easytier-local.crt"
+  [[ -f "$cert_path" ]] || return
+  mkdir -p "$(dirname "$EXPORT_CODESIGN_CERT_PATH")"
+  openssl x509 -in "$cert_path" -outform der -out "$EXPORT_CODESIGN_CERT_PATH"
+  echo "Exported local code signing certificate: $EXPORT_CODESIGN_CERT_PATH" >&2
 }
 
 git_revision() {
@@ -90,7 +330,58 @@ clear_codesign_blocking_xattrs() {
   done < <(find "$path" -print0)
 }
 
+clean_development_helper_state() {
+  if [[ "$CLEAN_HELPER_STATE" != "1" ]]; then
+    return
+  fi
+
+  local candidates=(
+    "$ROOT_DIR/.build/AppProducts/EasyTier.app/Contents/MacOS/EasyTierMac"
+    "$APP_DIR/Contents/MacOS/EasyTierMac"
+    "$EXPORT_APP_DIR/Contents/MacOS/EasyTierMac"
+  )
+
+  for binary in "${candidates[@]}"; do
+    if [[ -x "$binary" ]]; then
+      "$binary" --unregister-helper >/dev/null 2>&1 || true
+    fi
+  done
+
+  pkill -x EasyTierMac >/dev/null 2>&1 || true
+  for _ in $(seq 1 20); do
+    if ! pgrep -x EasyTierMac >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.1
+  done
+
+  if [[ "$RESET_BTM_STATE" == "1" ]]; then
+    echo "Resetting macOS Background Task Management state with sfltool resetbtm." >&2
+    echo "This is a global development cleanup for stale SMAppService/LWCR records." >&2
+    run_with_timeout 10 sfltool resetbtm >/dev/null 2>&1 || true
+  fi
+}
+
+run_with_timeout() {
+  local seconds="$1"
+  shift
+  "$@" &
+  local command_pid="$!"
+  (
+    sleep "$seconds"
+    kill "$command_pid" >/dev/null 2>&1 || true
+  ) &
+  local watchdog_pid="$!"
+  wait "$command_pid"
+  local status="$?"
+  kill "$watchdog_pid" >/dev/null 2>&1 || true
+  wait "$watchdog_pid" 2>/dev/null || true
+  return "$status"
+}
+
 cd "$ROOT_DIR"
+clean_development_helper_state
+rm -rf "$ROOT_DIR/.build/AppProducts/EasyTier.app" "$ROOT_DIR/.build/AppProducts/EasyTier.staging"
 GUI_COMMIT="$(git_revision "$ROOT_DIR")"
 CORE_TAG="$(git_exact_tag "$ROOT_DIR/Vendor/EasyTier")"
 CORE_COMMIT="$(git_revision "$ROOT_DIR/Vendor/EasyTier")"
@@ -187,13 +478,17 @@ xattr -cr "$APP_DIR"
 clear_codesign_blocking_xattrs "$APP_DIR"
 clear_finder_info "$APP_DIR"
 codesign --verify --deep --strict --verbose=2 "$APP_DIR" >/dev/null
+validate_installable_helper_signature "$APP_DIR"
 clear_codesign_blocking_xattrs "$APP_DIR"
 clear_finder_info "$APP_DIR"
 
 rm -rf "$EXPORT_APP_DIR"
+mkdir -p "$(dirname "$EXPORT_APP_DIR")"
 ditto --noextattr --norsrc "$APP_DIR" "$EXPORT_APP_DIR"
 clear_codesign_blocking_xattrs "$EXPORT_APP_DIR"
 clear_finder_info "$EXPORT_APP_DIR"
 codesign --verify --deep --strict --verbose=2 "$EXPORT_APP_DIR" >/dev/null
+validate_installable_helper_signature "$EXPORT_APP_DIR"
+export_codesigning_certificate_if_requested
 
 echo "$EXPORT_APP_DIR"
