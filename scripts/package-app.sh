@@ -31,6 +31,7 @@ LOCAL_SIGNING_PASSWORD_FILE="$LOCAL_SIGNING_DIR/keychain-password.txt"
 SECURITY_COMMAND_TIMEOUT="${EASYTIER_SECURITY_TIMEOUT:-120}"
 USING_LOCAL_CODESIGN=0
 TRUST_LOCAL_CODESIGN_CERT="${EASYTIER_TRUST_LOCAL_CODESIGN_CERT:-}"
+CLEAN_LOCAL_CODESIGN_KEYCHAIN="${EASYTIER_CLEAN_LOCAL_CODESIGN_KEYCHAIN:-}"
 
 if [[ "$BUILD_CONFIGURATION" != "debug" && "$BUILD_CONFIGURATION" != "release" ]]; then
   echo "EASYTIER_BUILD_CONFIGURATION must be 'debug' or 'release'." >&2
@@ -42,6 +43,14 @@ if [[ -z "$TRUST_LOCAL_CODESIGN_CERT" ]]; then
     TRUST_LOCAL_CODESIGN_CERT=0
   else
     TRUST_LOCAL_CODESIGN_CERT=1
+  fi
+fi
+
+if [[ -z "$CLEAN_LOCAL_CODESIGN_KEYCHAIN" ]]; then
+  if [[ -n "${RUNNER_TEMP:-}" && "$LOCAL_SIGNING_DIR" == "$RUNNER_TEMP"/* ]]; then
+    CLEAN_LOCAL_CODESIGN_KEYCHAIN=1
+  else
+    CLEAN_LOCAL_CODESIGN_KEYCHAIN=0
   fi
 fi
 
@@ -96,6 +105,7 @@ add_local_keychain_to_search_list() {
     keychain="${keychain#\"}"
     keychain="${keychain%\"}"
     [[ -n "$keychain" ]] || continue
+    [[ -e "$keychain" ]] || continue
     [[ "$keychain" == "$LOCAL_SIGNING_KEYCHAIN" ]] && continue
     keychains+=("$keychain")
   done < <(security list-keychains -d user 2>/dev/null | sed 's/^ *//')
@@ -103,6 +113,28 @@ add_local_keychain_to_search_list() {
   security_step "Adding local signing keychain to user search list" \
     security list-keychains -d user -s "$LOCAL_SIGNING_KEYCHAIN" "${keychains[@]}"
 }
+
+cleanup_local_codesigning_keychain() {
+  [[ "$CLEAN_LOCAL_CODESIGN_KEYCHAIN" == "1" ]] || return 0
+
+  local keychain
+  local keychains=()
+
+  while IFS= read -r keychain; do
+    keychain="${keychain#\"}"
+    keychain="${keychain%\"}"
+    [[ -n "$keychain" ]] || continue
+    [[ "$keychain" == "$LOCAL_SIGNING_KEYCHAIN" ]] && continue
+    [[ -e "$keychain" ]] || continue
+    keychains+=("$keychain")
+  done < <(security list-keychains -d user 2>/dev/null | sed 's/^ *//')
+
+  security list-keychains -d user -s "${keychains[@]}" >/dev/null 2>&1 || true
+  security delete-keychain "$LOCAL_SIGNING_KEYCHAIN" >/dev/null 2>&1 || true
+  rm -rf "$LOCAL_SIGNING_DIR"
+}
+
+trap cleanup_local_codesigning_keychain EXIT
 
 local_codesign_identity_is_valid() {
   [[ -f "$LOCAL_SIGNING_KEYCHAIN" ]] || return 1
