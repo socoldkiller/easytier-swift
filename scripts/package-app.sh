@@ -91,17 +91,27 @@ subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid:always,issuer
 EOF
 
+  echo "Generating local self-signed code signing certificate." >&2
   openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
     -keyout "$key_path" \
     -out "$cert_path" \
-    -config "$openssl_config" >/dev/null 2>&1
-  openssl pkcs12 -export -legacy \
-    -inkey "$key_path" \
-    -in "$cert_path" \
-    -out "$p12_path" \
-    -passout pass:"$password" \
-    -name "$LOCAL_CODESIGN_IDENTITY" >/dev/null 2>&1
+    -config "$openssl_config" >/dev/null
 
+  local pkcs12_args=(pkcs12 -export)
+  if openssl pkcs12 -help 2>&1 | grep -q -- '-legacy'; then
+    pkcs12_args+=(-legacy)
+  fi
+  pkcs12_args+=(
+    -inkey "$key_path"
+    -in "$cert_path"
+    -out "$p12_path"
+    -passout pass:"$password"
+    -name "$LOCAL_CODESIGN_IDENTITY"
+  )
+  echo "Exporting local code signing identity." >&2
+  openssl "${pkcs12_args[@]}" >/dev/null
+
+  echo "Creating local signing keychain." >&2
   security create-keychain -p "$password" "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
   security set-keychain-settings -lut 21600 "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
   security unlock-keychain -p "$password" "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
