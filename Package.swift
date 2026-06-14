@@ -8,6 +8,7 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
+        .library(name: "EasyTierSupport", targets: ["EasyTierSupport"]),
         .library(name: "EasyTierCore", targets: ["EasyTierCore"]),
         .executable(name: "EasyTierMac", targets: ["EasyTierMac"]),
         .executable(name: "EasyTierValidator", targets: ["EasyTierValidator"]),
@@ -26,10 +27,16 @@ let package = Package(
             ]
         ),
         .target(
+            name: "EasyTierSupport",
+            dependencies: [
+                .product(name: "TOML", package: "swift-toml"),
+            ]
+        ),
+        .target(
             name: "EasyTierCore",
             dependencies: [
                 "CEasyTierFFI",
-                .product(name: "TOML", package: "swift-toml"),
+                "EasyTierSupport",
             ],
             linkerSettings: [
                 .linkedLibrary("System"),
@@ -41,11 +48,11 @@ let package = Package(
         ),
         .executableTarget(
             name: "EasyTierValidator",
-            dependencies: ["EasyTierCore"]
+            dependencies: ["EasyTierSupport"]
         ),
         .executableTarget(
             name: "EasyTierPrivilegedHelper",
-            dependencies: ["EasyTierCore"]
+            dependencies: ["EasyTierSupport"]
         ),
         .testTarget(
             name: "EasyTierCoreTests",

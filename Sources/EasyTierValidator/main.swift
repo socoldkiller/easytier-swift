@@ -1,4 +1,4 @@
-import EasyTierCore
+import EasyTierSupport
 import Foundation
 
 let command = CommandLine.arguments.dropFirst().first
@@ -15,7 +15,8 @@ guard let toml = String(data: input, encoding: .utf8), !toml.trimmingCharacters(
 }
 
 do {
-    try StaticEasyTierFFIClient.validateDirect(toml: toml)
+    let config = try NetworkConfigTOMLCodec.decode(toml)
+    try NetworkConfigValidator.validate(config)
     exit(0)
 } catch {
     FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))

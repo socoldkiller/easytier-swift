@@ -1,3 +1,4 @@
+import EasyTierSupport
 import Foundation
 
 public final class PrivilegedEasyTierClient: EasyTierCoreClient, @unchecked Sendable {
@@ -18,68 +19,29 @@ public final class PrivilegedEasyTierClient: EasyTierCoreClient, @unchecked Send
                 service.validate(toml: toml, reply: reply)
             }
         } catch PrivilegedHelperError.unavailable {
-            try await fallback.validate(toml: toml)
+            // The helper is only a lightweight privilege boundary; the main app still owns FFI validation.
         }
+        try await fallback.validate(toml: toml)
     }
 
     public func run(config: NetworkConfig) async throws {
-        let toml = NetworkConfigTOMLCodec.encode(config)
-        try await validate(toml: toml)
-
-        if config.no_tun == true {
-            try await fallback.run(config: config)
-            return
-        }
-
-        try await callHelper { service, reply in
-            service.run(configTOML: toml, reply: reply)
-        }
+        try await fallback.run(config: config)
     }
 
     public func stop(instanceNames: [String]) async throws {
-        do {
-            try await callHelper { service, reply in
-                service.stop(instanceNames: instanceNames, reply: reply)
-            }
-        } catch PrivilegedHelperError.unavailable {
-            try await fallback.stop(instanceNames: instanceNames)
-        }
+        try await fallback.stop(instanceNames: instanceNames)
     }
 
     public func retain(instanceNames: [String]) async throws {
-        do {
-            try await callHelper { service, reply in
-                service.retain(instanceNames: instanceNames, reply: reply)
-            }
-        } catch PrivilegedHelperError.unavailable {
-            try await fallback.retain(instanceNames: instanceNames)
-        }
+        try await fallback.retain(instanceNames: instanceNames)
     }
 
     public func listInstances() async throws -> [NetworkInstance] {
-        do {
-            let payload = try await callHelperReturningPayload { service, reply in
-                service.listInstances(reply: reply)
-            }
-            return try Self.decoder.decode([NetworkInstance].self, from: Data(payload.utf8))
-        } catch PrivilegedHelperError.unavailable {
-            return try await fallback.listInstances()
-        } catch let error as DecodingError {
-            throw PrivilegedHelperError.invalidPayload(String(describing: error))
-        }
+        try await fallback.listInstances()
     }
 
     public func collectNetworkInfos() async throws -> [String: NetworkInstanceRunningInfo] {
-        do {
-            let payload = try await callHelperReturningPayload { service, reply in
-                service.collectNetworkInfos(reply: reply)
-            }
-            return try Self.decoder.decode([String: NetworkInstanceRunningInfo].self, from: Data(payload.utf8))
-        } catch PrivilegedHelperError.unavailable {
-            return try await fallback.collectNetworkInfos()
-        } catch let error as DecodingError {
-            throw PrivilegedHelperError.invalidPayload(String(describing: error))
-        }
+        try await fallback.collectNetworkInfos()
     }
 
     public func callJSONRPC(service: String, method: String, domain: String?, payload: String) async throws -> String {
@@ -162,8 +124,6 @@ public final class PrivilegedEasyTierClient: EasyTierCoreClient, @unchecked Send
         connection.resume()
         return connection
     }
-
-    private static let decoder = JSONDecoder()
 }
 
 private final class HelperCallState: @unchecked Sendable {
