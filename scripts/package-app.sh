@@ -28,6 +28,8 @@ LOCAL_CODESIGN_IDENTITY="${EASYTIER_LOCAL_CODESIGN_IDENTITY:-EasyTierLocalCodeSi
 LOCAL_SIGNING_DIR="${EASYTIER_LOCAL_SIGNING_DIR:-$HOME/Library/Application Support/easytier/LocalSigning}"
 LOCAL_SIGNING_KEYCHAIN="$LOCAL_SIGNING_DIR/easytier-local-signing.keychain-db"
 LOCAL_SIGNING_PASSWORD_FILE="$LOCAL_SIGNING_DIR/keychain-password.txt"
+SECURITY_COMMAND_TIMEOUT="${EASYTIER_SECURITY_TIMEOUT:-120}"
+USING_LOCAL_CODESIGN=0
 
 if [[ "$BUILD_CONFIGURATION" != "debug" && "$BUILD_CONFIGURATION" != "release" ]]; then
   echo "EASYTIER_BUILD_CONFIGURATION must be 'debug' or 'release'." >&2
@@ -41,18 +43,77 @@ identity_names_matching() {
     | grep -E "$pattern" || true
 }
 
+run_with_timeout() {
+  local seconds="$1"
+  shift
+
+  if command -v perl >/dev/null 2>&1; then
+    perl -e 'my $seconds = shift @ARGV; alarm $seconds; exec @ARGV or die "exec failed: $!\n";' "$seconds" "$@"
+  else
+    "$@"
+  fi
+}
+
+security_step() {
+  local label="$1"
+  local log_file
+  shift
+
+  echo "$label." >&2
+  log_file="$(mktemp "${TMPDIR:-/tmp}/easytier-security.XXXXXX")"
+  set +e
+  run_with_timeout "$SECURITY_COMMAND_TIMEOUT" "$@" >"$log_file" 2>&1
+  local status=$?
+  set -e
+
+  if [[ "$status" -ne 0 ]]; then
+    echo "$label failed with exit code $status." >&2
+    cat "$log_file" >&2
+    rm -f "$log_file"
+    return "$status"
+  fi
+
+  if [[ "${EASYTIER_VERBOSE_SECURITY:-0}" == "1" ]]; then
+    cat "$log_file" >&2
+  fi
+  rm -f "$log_file"
+}
+
+add_local_keychain_to_search_list() {
+  local keychain
+  local keychains=()
+
+  while IFS= read -r keychain; do
+    keychain="${keychain#\"}"
+    keychain="${keychain%\"}"
+    [[ -n "$keychain" ]] || continue
+    [[ "$keychain" == "$LOCAL_SIGNING_KEYCHAIN" ]] && continue
+    keychains+=("$keychain")
+  done < <(security list-keychains -d user 2>/dev/null | sed 's/^ *//')
+
+  security_step "Adding local signing keychain to user search list" \
+    security list-keychains -d user -s "$LOCAL_SIGNING_KEYCHAIN" "${keychains[@]}"
+}
+
 local_codesign_identity_is_valid() {
   [[ -f "$LOCAL_SIGNING_KEYCHAIN" ]] || return 1
   security find-identity -v -p codesigning "$LOCAL_SIGNING_KEYCHAIN" 2>/dev/null \
     | grep -F "\"$LOCAL_CODESIGN_IDENTITY\"" >/dev/null
 }
 
+local_codesign_identity_hash() {
+  security find-identity -v -p codesigning "$LOCAL_SIGNING_KEYCHAIN" 2>/dev/null \
+    | awk -v name="$LOCAL_CODESIGN_IDENTITY" '$0 ~ "\\\"" name "\\\"" { print $2; exit }'
+}
+
 unlock_local_codesigning_keychain() {
   [[ -f "$LOCAL_SIGNING_PASSWORD_FILE" ]] || return 1
   local password
   password="$(cat "$LOCAL_SIGNING_PASSWORD_FILE")"
-  security unlock-keychain -p "$password" "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
-  security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
+  security_step "Unlocking local signing keychain" \
+    security unlock-keychain -p "$password" "$LOCAL_SIGNING_KEYCHAIN" || return $?
+  security_step "Allowing codesign to use local signing key" \
+    security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$LOCAL_SIGNING_KEYCHAIN" || return $?
 }
 
 create_local_codesigning_identity() {
@@ -111,16 +172,24 @@ EOF
   echo "Exporting local code signing identity." >&2
   openssl "${pkcs12_args[@]}" >/dev/null
 
-  echo "Creating local signing keychain." >&2
-  security create-keychain -p "$password" "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
-  security set-keychain-settings -lut 21600 "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
-  security unlock-keychain -p "$password" "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
-  security import "$p12_path" -k "$LOCAL_SIGNING_KEYCHAIN" -P "$password" -T /usr/bin/codesign >/dev/null
-  security add-trusted-cert -r trustRoot -p codeSign -k "$LOCAL_SIGNING_KEYCHAIN" "$cert_path" >/dev/null
-  security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$LOCAL_SIGNING_KEYCHAIN" >/dev/null
+  security_step "Creating local signing keychain" \
+    security create-keychain -p "$password" "$LOCAL_SIGNING_KEYCHAIN"
+  add_local_keychain_to_search_list
+  security_step "Configuring local signing keychain timeout" \
+    security set-keychain-settings -lut 21600 "$LOCAL_SIGNING_KEYCHAIN"
+  security_step "Unlocking local signing keychain" \
+    security unlock-keychain -p "$password" "$LOCAL_SIGNING_KEYCHAIN"
+  security_step "Importing local code signing identity" \
+    security import "$p12_path" -k "$LOCAL_SIGNING_KEYCHAIN" -P "$password" -A -T /usr/bin/codesign
+  security_step "Trusting local code signing certificate" \
+    security add-trusted-cert -r trustRoot -p codeSign -k "$LOCAL_SIGNING_KEYCHAIN" "$cert_path"
+  security_step "Allowing codesign to use local signing key" \
+    security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$LOCAL_SIGNING_KEYCHAIN"
 }
 
 use_local_codesigning_identity() {
+  local identity_hash
+
   if ! unlock_local_codesigning_keychain || ! local_codesign_identity_is_valid; then
     echo "Creating local EasyTier development code signing identity: $LOCAL_CODESIGN_IDENTITY" >&2
     create_local_codesigning_identity
@@ -132,10 +201,17 @@ use_local_codesigning_identity() {
     exit 1
   fi
 
-  CODE_SIGN_IDENTITY="$LOCAL_CODESIGN_IDENTITY"
+  identity_hash="$(local_codesign_identity_hash)"
+  if [[ -z "$identity_hash" ]]; then
+    echo "Could not resolve local code signing identity hash: $LOCAL_CODESIGN_IDENTITY" >&2
+    exit 1
+  fi
+
+  CODE_SIGN_IDENTITY="$identity_hash"
   CODE_SIGN_KEYCHAIN="$LOCAL_SIGNING_KEYCHAIN"
   CODE_SIGN_TIMESTAMP=0
-  echo "Using local development code signing identity: $CODE_SIGN_IDENTITY" >&2
+  USING_LOCAL_CODESIGN=1
+  echo "Using local development code signing identity: $LOCAL_CODESIGN_IDENTITY ($CODE_SIGN_IDENTITY)" >&2
 }
 
 select_codesign_identity() {
@@ -279,7 +355,7 @@ export_codesigning_certificate_if_requested() {
   if [[ -z "$EXPORT_CODESIGN_CERT_PATH" ]]; then
     return
   fi
-  if [[ "$CODE_SIGN_IDENTITY" != "$LOCAL_CODESIGN_IDENTITY" ]]; then
+  if [[ "$USING_LOCAL_CODESIGN" != "1" ]]; then
     echo "EASYTIER_EXPORT_CODESIGN_CERT_PATH is only supported for the local self-signed development identity." >&2
     return
   fi
