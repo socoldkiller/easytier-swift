@@ -45,6 +45,11 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v protoc >/dev/null 2>&1; then
+  echo "protoc is required for EasyTier FFI builds; install protobuf first." >&2
+  exit 1
+fi
+
 ensure_easytier_core_tag
 
 mkdir -p Vendor/Frameworks
@@ -52,4 +57,5 @@ mkdir -p Vendor/Frameworks
 echo "Swift: $(swift --version | head -n 1)"
 echo "Xcode: $(xcodebuild -version | tr '\n' ' ')"
 echo "Rust: $(cargo --version)"
+echo "protoc: $(protoc --version)"
 echo "Bootstrap complete."
