@@ -52,7 +52,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "EasyTierPrivilegedHelper",
-            dependencies: ["EasyTierSupport"]
+            dependencies: ["EasyTierCore"]
         ),
         .testTarget(
             name: "EasyTierCoreTests",

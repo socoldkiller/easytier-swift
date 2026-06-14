@@ -1,8 +1,11 @@
 import Darwin
-import EasyTierSupport
+import EasyTierCore
 import Foundation
 
 final class PrivilegedService: NSObject, EasyTierPrivilegedServiceProtocol, @unchecked Sendable {
+    private let client = StaticEasyTierFFIClient()
+    private let encoder = JSONEncoder()
+
     func ping(reply: @escaping (String?, String?) -> Void) {
         reply(EasyTierPrivilegedHelperConstants.pingPayload, nil)
     }
@@ -24,8 +27,7 @@ final class PrivilegedService: NSObject, EasyTierPrivilegedServiceProtocol, @unc
 
     func validate(toml: String, reply: @escaping (String?, String?) -> Void) {
         do {
-            let config = try NetworkConfigTOMLCodec.decode(toml)
-            try NetworkConfigValidator.validate(config)
+            try StaticEasyTierFFIClient.validateDirect(toml: toml)
             reply("ok", nil)
         } catch {
             reply(nil, error.localizedDescription)
@@ -33,25 +35,53 @@ final class PrivilegedService: NSObject, EasyTierPrivilegedServiceProtocol, @unc
     }
 
     func run(configTOML: String, reply: @escaping (String?, String?) -> Void) {
-        validate(toml: configTOML) { _, error in
-            reply(nil, error ?? "EasyTier runtime is managed by the main app process.")
+        do {
+            try StaticEasyTierFFIClient.validateDirect(toml: configTOML)
+            try client.run(toml: configTOML)
+            reply("ok", nil)
+        } catch {
+            reply(nil, error.localizedDescription)
         }
     }
 
     func stop(instanceNames: [String], reply: @escaping (String?, String?) -> Void) {
-        reply(nil, "EasyTier runtime is managed by the main app process.")
+        run(reply: reply) { try client.stopSync(instanceNames: instanceNames) }
     }
 
     func retain(instanceNames: [String], reply: @escaping (String?, String?) -> Void) {
-        reply(nil, "EasyTier runtime is managed by the main app process.")
+        run(reply: reply) { try client.retainSync(instanceNames: instanceNames) }
     }
 
     func listInstances(reply: @escaping (String?, String?) -> Void) {
-        reply(nil, "EasyTier runtime is managed by the main app process.")
+        do {
+            let instances = try client.listInstancesSync()
+            reply(String(data: try encoder.encode(instances), encoding: .utf8) ?? "[]", nil)
+        } catch {
+            reply(nil, error.localizedDescription)
+        }
     }
 
     func collectNetworkInfos(reply: @escaping (String?, String?) -> Void) {
-        reply(nil, "EasyTier runtime is managed by the main app process.")
+        do {
+            let infos = try client.collectNetworkInfoPayloadsSync()
+            var object: [String: Any] = [:]
+            for info in infos {
+                object[info.key] = try JSONSerialization.jsonObject(with: Data(info.value.utf8))
+            }
+            let data = try JSONSerialization.data(withJSONObject: object)
+            reply(String(data: data, encoding: .utf8) ?? "{}", nil)
+        } catch {
+            reply(nil, error.localizedDescription)
+        }
+    }
+
+    private func run(reply: @escaping (String?, String?) -> Void, _ operation: () throws -> Void) {
+        do {
+            try operation()
+            reply("ok", nil)
+        } catch {
+            reply(nil, error.localizedDescription)
+        }
     }
 }
 
