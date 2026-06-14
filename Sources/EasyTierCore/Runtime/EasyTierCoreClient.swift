@@ -58,6 +58,6 @@ public struct UnavailableEasyTierCoreClient: EasyTierCoreClient {
 
 public enum EasyTierClientFactory {
     public static func makeDefault() -> any EasyTierCoreClient {
-        PrivilegedEasyTierClient()
+        StaticEasyTierFFIClient()
     }
 }
