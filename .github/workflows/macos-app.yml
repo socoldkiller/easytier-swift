@@ -102,8 +102,47 @@ jobs:
       - name: Test Swift package
         run: swift test --configuration release
 
+      - name: Resolve macOS signing mode
+        id: signing
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64 }}
+          APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APPLE_CODESIGN_IDENTITY: ${{ secrets.APPLE_CODESIGN_IDENTITY }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          if [[ "$GITHUB_REF" != refs/tags/* ]]; then
+            echo "mode=local" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          missing=()
+          for name in \
+            APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64 \
+            APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_PASSWORD \
+            APPLE_KEYCHAIN_PASSWORD \
+            APPLE_CODESIGN_IDENTITY \
+            APPLE_NOTARY_KEY \
+            APPLE_NOTARY_KEY_ID \
+            APPLE_NOTARY_ISSUER_ID
+          do
+            if [[ -z "${!name}" ]]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [[ "${#missing[@]}" -eq 0 ]]; then
+            echo "mode=developer-id" >> "$GITHUB_OUTPUT"
+            echo "Tag release will use Developer ID signing and Apple notarization."
+          else
+            echo "mode=self-signed" >> "$GITHUB_OUTPUT"
+            printf 'Apple release secrets are not fully configured; publishing a self-signed, non-notarized DMG. Missing: %s\n' "${missing[*]}"
+          fi
+
       - name: Import Developer ID certificate
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') && steps.signing.outputs.mode == 'developer-id'
         uses: Apple-Actions/import-codesign-certs@v7
         with:
           p12-file-base64: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTIFICATE_BASE64 }}
@@ -113,25 +152,29 @@ jobs:
       - name: Package app
         env:
           EASYTIER_CODESIGN_IDENTITY: ${{ secrets.APPLE_CODESIGN_IDENTITY }}
+          EASYTIER_SIGNING_MODE: ${{ steps.signing.outputs.mode }}
         run: |
           mkdir -p .build/artifacts
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          if [[ "$EASYTIER_SIGNING_MODE" == "developer-id" ]]; then
             export EASYTIER_REQUIRE_DISTRIBUTION_SIGNING=1
           else
+            export EASYTIER_CODESIGN_IDENTITY="-"
             export EASYTIER_LOCAL_SIGNING_DIR="$RUNNER_TEMP/EasyTierLocalSigning"
             export EASYTIER_EXPORT_CODESIGN_CERT_PATH="$GITHUB_WORKSPACE/.build/artifacts/EasyTierLocalCodeSigning.cer"
           fi
           ./scripts/package-app.sh
 
       - name: Verify app bundle
+        env:
+          EASYTIER_SIGNING_MODE: ${{ steps.signing.outputs.mode }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          if [[ "$EASYTIER_SIGNING_MODE" == "developer-id" ]]; then
             export EASYTIER_VERIFY_INSTALLABLE_HELPER=1
           fi
           ./scripts/verify-app.sh "$EASYTIER_EXPORT_APP_DIR"
 
       - name: Notarize release app
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') && steps.signing.outputs.mode == 'developer-id'
         env:
           APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
           APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
@@ -224,6 +267,24 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
         run: |
+          NOTES_PATH=".build/release-artifacts/RELEASE_NOTES.md"
+          if [[ -f .build/release-artifacts/SELF_SIGNED_INSTALL.txt ]]; then
+            cat > "$NOTES_PATH" <<'EOF'
+          Automated EasyTier macOS app build.
+
+          This DMG is self-signed and not Apple-notarized because Apple Developer ID/notarization credentials are not configured for CI. macOS Gatekeeper may block first launch.
+
+          See SELF_SIGNED_INSTALL.txt inside the DMG for installation notes.
+          EOF
+          else
+            cat > "$NOTES_PATH" <<'EOF'
+          Automated EasyTier macOS app build.
+
+          This DMG is Developer ID signed and Apple-notarized.
+          EOF
+          fi
+
           gh release view "$TAG_NAME" --repo "$REPOSITORY" >/dev/null 2>&1 || \
-            gh release create "$TAG_NAME" --repo "$REPOSITORY" --title "$TAG_NAME" --notes "Automated EasyTier macOS app build."
+            gh release create "$TAG_NAME" --repo "$REPOSITORY" --title "$TAG_NAME" --notes-file "$NOTES_PATH"
+          gh release edit "$TAG_NAME" --repo "$REPOSITORY" --notes-file "$NOTES_PATH"
           gh release upload "$TAG_NAME" .build/release-artifacts/*.dmg --repo "$REPOSITORY" --clobber
