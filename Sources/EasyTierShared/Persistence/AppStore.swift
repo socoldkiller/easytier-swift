@@ -127,13 +127,14 @@ public final class EasyTierAppStore {
 
     public func deleteSelectedConfig() async {
         guard let selectedConfigID, let index = configs.firstIndex(where: { $0.id == selectedConfigID }) else { return }
-        let name = configs[index].config.network_name
+        let config = configs[index].config
+        let name = runningInstance(matching: config)?.name ?? config.network_name
         do {
             try await client.stop(instanceNames: [name])
         } catch {
             log("Stop before delete skipped: \(error.localizedDescription)")
         }
-        clearPendingStart(for: configs[index].config)
+        clearPendingStart(for: config)
         configs.remove(at: index)
         if configs.isEmpty { configs.append(StoredNetworkConfig(config: NetworkConfig())) }
         self.selectedConfigID = configs.first?.id
@@ -190,9 +191,25 @@ public final class EasyTierAppStore {
         guard let config = selectedConfig else { return }
         await busy {
             log("Stopping \(config.network_name)...")
-            try await client.stop(instanceNames: [config.network_name])
+            let instanceName = runningInstance(matching: config)?.name ?? config.network_name
+            try await client.stop(instanceNames: [instanceName])
             clearPendingStart(for: config)
             log("Stopped \(config.network_name).")
+            try await refreshRuntimeThrowing()
+        }
+    }
+
+    public func restartSelectedConfig(replacing instance: NetworkInstance) async {
+        guard let config = selectedConfig else { return }
+        await busy {
+            log("Restarting \(config.network_name)...")
+            try NetworkConfigValidator.validate(config)
+            try await client.validate(toml: NetworkConfigTOMLCodec.encode(config))
+            try await client.stop(instanceNames: [instance.name])
+            clearPendingStart(for: config)
+            try await client.run(config: config)
+            recordPendingStart(for: config)
+            log("Restarted \(config.network_name).")
             try await refreshRuntimeThrowing()
         }
     }
@@ -294,7 +311,6 @@ public final class EasyTierAppStore {
     }
 
     private func refreshRuntimeThrowing() async throws {
-        let now = Date()
         var running = try await client.listInstances()
         let infos = try await client.collectNetworkInfos()
         for index in running.indices {
@@ -308,12 +324,7 @@ public final class EasyTierAppStore {
             }
             running[index].running = true
         }
-        let expired = mergePendingStarts(into: &running, now: now)
-        for pending in expired {
-            let message = "EasyTier accepted \(pending.name), but no runtime instance appeared within \(Int(Self.pendingStartTimeout)) seconds. Refresh runtime state or restart the network."
-            lastError = message
-            log("Error: \(message)")
-        }
+        mergePendingStarts(into: &running)
         recordTrafficSamples(for: running)
         instances = running
         isConfigServerConnected = (try? await client.isConfigServerClientConnected()) ?? false
@@ -362,8 +373,7 @@ public final class EasyTierAppStore {
     private func recordPendingStart(for config: NetworkConfig) {
         pendingStarts[config.instance_id] = PendingNetworkStart(
             instanceID: config.instance_id,
-            name: config.network_name,
-            startedAt: Date()
+            name: config.network_name
         )
     }
 
@@ -371,23 +381,18 @@ public final class EasyTierAppStore {
         pendingStarts.removeValue(forKey: config.instance_id)
     }
 
-    private func mergePendingStarts(into running: inout [NetworkInstance], now: Date) -> [PendingNetworkStart] {
+    private func mergePendingStarts(into running: inout [NetworkInstance]) {
         let runningIDs = Set(running.map(\.instance_id))
         let runningNames = Set(running.map(\.name))
-        var expired: [PendingNetworkStart] = []
 
         pendingStarts = pendingStarts.filter { _, pending in
             if runningIDs.contains(pending.instanceID) || runningNames.contains(pending.name) {
                 return false
             }
-            if now.timeIntervalSince(pending.startedAt) > Self.pendingStartTimeout {
-                expired.append(pending)
-                return false
-            }
             return true
         }
 
-        for pending in pendingStarts.values.sorted(by: { $0.startedAt < $1.startedAt }) {
+        for pending in pendingStarts.values.sorted(by: { $0.name < $1.name }) {
             guard !running.contains(where: { $0.instance_id == pending.instanceID || $0.name == pending.name }) else { continue }
             running.append(
                 NetworkInstance(
@@ -398,8 +403,6 @@ public final class EasyTierAppStore {
                 )
             )
         }
-
-        return expired
     }
 
     private func recordTrafficSamples(for instances: [NetworkInstance]) {
@@ -508,8 +511,6 @@ public final class EasyTierAppStore {
         formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
-
-    private static let pendingStartTimeout: TimeInterval = 20
     private static let helperPermissionErrorCodes: Set<String> = [
         "helperNotRegistered",
         "helperRequiresApproval",
@@ -520,7 +521,6 @@ public final class EasyTierAppStore {
 private struct PendingNetworkStart: Sendable {
     var instanceID: String
     var name: String
-    var startedAt: Date
 }
 
 public enum WorkspaceTab: String, CaseIterable, Identifiable, Sendable {

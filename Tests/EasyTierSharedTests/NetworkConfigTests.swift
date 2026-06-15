@@ -343,6 +343,26 @@ import Testing
 }
 
 @MainActor
+@Test func restartSelectedConfigStopsOldRuntimeNameBeforeRunningUpdatedConfig() async {
+    let original = NetworkConfig(instance_id: "config-id", network_name: "old-network")
+    var updated = original
+    updated.network_name = "new-network"
+    let client = RecordingToggleClient()
+    let store = EasyTierAppStore(client: client)
+    let runningInstance = NetworkInstance(instance_id: original.network_name, name: original.network_name, running: true)
+
+    store.configs = [StoredNetworkConfig(config: original)]
+    store.selectedConfigID = original.instance_id
+    store.instances = [runningInstance]
+    store.updateConfig(id: original.instance_id, with: updated)
+
+    await store.restartSelectedConfig(replacing: runningInstance)
+
+    #expect(client.stoppedInstanceNames == [[original.network_name]])
+    #expect(client.runConfigs.map(\.network_name) == [updated.network_name])
+}
+
+@MainActor
 @Test func selectedRunningInstanceDoesNotUseAmbiguousNameFallback() {
     let first = NetworkConfig(instance_id: "first-id", network_name: "shared-network")
     let second = NetworkConfig(instance_id: "second-id", network_name: "shared-network")
@@ -576,7 +596,7 @@ import Testing
       "running": true
     }
     """
-    let connectedJSON = """
+    let usableJSON = """
     {
       "my_node_info": {
         "hostname": "macbook",
@@ -584,8 +604,39 @@ import Testing
       },
       "peer_route_pairs": [
         {
-          "route": { "peer_id": 200, "hostname": "office-mini", "cost": 1 },
-          "peer": { "peer_id": 200, "conns": [ { "conn_id": "c1" } ] }
+          "route": { "peer_id": 200, "ipv4_addr": "10.10.0.2/24", "hostname": "office-mini", "cost": 2 },
+          "peer": { "peer_id": 200, "conns": [] }
+        }
+      ],
+      "running": true
+    }
+    """
+    let routesOnlyJSON = """
+    {
+      "my_node_info": {
+        "hostname": "macbook",
+        "peer_id": 100
+      },
+      "routes": [
+        { "peer_id": 200, "ipv4_addr": "10.10.0.2/24", "hostname": "office-mini", "cost": 2 }
+      ],
+      "running": true
+    }
+    """
+    let mixedWithPublicServerJSON = """
+    {
+      "my_node_info": {
+        "hostname": "macbook",
+        "peer_id": 100
+      },
+      "peer_route_pairs": [
+        {
+          "route": { "peer_id": 200, "hostname": "PublicServer_demo", "cost": 1 },
+          "peer": { "peer_id": 200, "conns": [ { "conn_id": "public-server" } ] }
+        },
+        {
+          "route": { "peer_id": 201, "ipv4_addr": "10.10.0.2/24", "hostname": "office-mini", "cost": 1 },
+          "peer": { "peer_id": 201, "conns": [] }
         }
       ],
       "running": true
@@ -593,12 +644,18 @@ import Testing
     """
 
     let waiting = try JSONDecoder().decode(NetworkInstanceRunningInfo.self, from: Data(waitingJSON.utf8))
-    let connected = try JSONDecoder().decode(NetworkInstanceRunningInfo.self, from: Data(connectedJSON.utf8))
+    let usable = try JSONDecoder().decode(NetworkInstanceRunningInfo.self, from: Data(usableJSON.utf8))
+    let routesOnly = try JSONDecoder().decode(NetworkInstanceRunningInfo.self, from: Data(routesOnlyJSON.utf8))
+    let mixedWithPublicServer = try JSONDecoder().decode(NetworkInstanceRunningInfo.self, from: Data(mixedWithPublicServerJSON.utf8))
 
     #expect(!waiting.isFullyConnected)
     #expect(!waiting.isFullyConnected(expectRemotePeers: true))
-    #expect(connected.isFullyConnected)
-    #expect(connected.isFullyConnected(expectRemotePeers: true))
+    #expect(usable.isFullyConnected)
+    #expect(usable.isFullyConnected(expectRemotePeers: true))
+    #expect(routesOnly.isFullyConnected)
+    #expect(routesOnly.isFullyConnected(expectRemotePeers: true))
+    #expect(mixedWithPublicServer.isFullyConnected)
+    #expect(mixedWithPublicServer.isFullyConnected(expectRemotePeers: true))
 }
 
 @Test func runtimeInfoReadsCurrentApiMemberFields() throws {

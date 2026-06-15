@@ -127,6 +127,7 @@ struct ContentView: View {
             }
 
             Button {
+                let runningInstanceToRestart = draftIsDirty ? store.selectedRunningInstance : nil
                 commitDraft(saveImmediately: true)
                 Task {
                     permissionController.refresh()
@@ -134,7 +135,9 @@ struct ContentView: View {
                         store.clearHelperPermissionError()
                         return
                     }
-                    if selectedConfigIsRunning {
+                    if let runningInstanceToRestart {
+                        await store.restartSelectedConfig(replacing: runningInstanceToRestart)
+                    } else if selectedConfigIsRunning {
                         await store.stopSelectedConfig()
                     } else {
                         await store.runSelectedConfig()
@@ -142,8 +145,8 @@ struct ContentView: View {
                 }
             } label: {
                 Label(
-                    store.isBusy ? "Working" : selectedConfigIsRunning ? "Pause" : "Run",
-                    systemImage: store.isBusy ? "hourglass" : selectedConfigIsRunning ? "pause.fill" : "play.fill"
+                    connectionActionTitle,
+                    systemImage: connectionActionSystemImage
                 )
             }
             .disabled(store.selectedConfig == nil || store.isBusy || permissionController.state != .enabled)
@@ -179,8 +182,25 @@ struct ContentView: View {
     }
 
     private var selectedConfigIsRunning: Bool {
+        if draftIsDirty, store.selectedConfigIsRunning { return true }
         guard let config = draftConfigID == store.selectedConfigID ? draftConfig : store.selectedConfig else { return false }
         return store.runningInstance(matching: config) != nil
+    }
+
+    private var selectedConfigNeedsRestart: Bool {
+        draftIsDirty && store.selectedConfigIsRunning
+    }
+
+    private var connectionActionTitle: String {
+        if store.isBusy { return "Working" }
+        if selectedConfigNeedsRestart { return "Restart" }
+        return selectedConfigIsRunning ? "Pause" : "Run"
+    }
+
+    private var connectionActionSystemImage: String {
+        if store.isBusy { return "hourglass" }
+        if selectedConfigNeedsRestart { return "arrow.clockwise" }
+        return selectedConfigIsRunning ? "pause.fill" : "play.fill"
     }
 
     private func connectionState(for stored: StoredNetworkConfig) -> ConnectionGlyphState {
@@ -325,24 +345,13 @@ private struct NetworkStatusGlyph: View {
     var state: ConnectionGlyphState
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            ConnectionGlyph(state: state, size: 18)
-                .frame(width: 18, height: 18)
-
-            Circle()
-                .fill(dotColor)
-                .overlay {
-                    Circle()
-                        .stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.2)
-                }
-                .frame(width: 7, height: 7)
-                .offset(x: 2, y: 2)
-        }
+        ConnectionGlyph(state: state, size: 18, statusNodeColor: statusNodeColor)
+            .frame(width: 18, height: 18)
         .frame(width: 22, height: 22)
         .accessibilityLabel(accessibilityLabel)
     }
 
-    private var dotColor: Color {
+    private var statusNodeColor: Color {
         switch state {
         case .connected:
             return .green
