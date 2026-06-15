@@ -6,6 +6,7 @@ import SwiftUI
 @main
 struct EasyTierApp: App {
     @State private var store = EasyTierAppStore()
+    @State private var updater = SoftwareUpdateController()
 
     init() {
         Self.runHelperCommandIfRequested()
@@ -15,6 +16,7 @@ struct EasyTierApp: App {
         Window("EasyTier", id: "main") {
             ContentView()
                 .environment(store)
+                .environment(updater)
                 .frame(minWidth: 900, minHeight: 620)
                 .task { await store.load() }
         }
@@ -28,11 +30,16 @@ struct EasyTierApp: App {
                 Button("Save") { store.save() }
                     .keyboardShortcut("s")
             }
+
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates...") { updater.checkForUpdates() }
+            }
         }
 
         MenuBarExtra {
             MenuBarContent()
                 .environment(store)
+                .environment(updater)
         } label: {
             MenuBarConnectionLabel(state: menuBarConnectionState)
         }

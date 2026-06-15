@@ -14,6 +14,7 @@ LAUNCH_DAEMONS_DIR="$CONTENTS_DIR/Library/LaunchDaemons"
 BUNDLE_IDENTIFIER="com.kkrainbow.easytier.mac"
 HELPER_IDENTIFIER="com.kkrainbow.easytier.mac.helper"
 BUILD_CONFIGURATION="${EASYTIER_BUILD_CONFIGURATION:-debug}"
+APP_VERSION="${EASYTIER_APP_VERSION:-}"
 DEAD_STRIP_RELEASE="${EASYTIER_DEAD_STRIP_RELEASE:-1}"
 STRIP_RELEASE_BINARIES="${EASYTIER_STRIP_RELEASE_BINARIES:-1}"
 CODE_SIGN_IDENTITY="${EASYTIER_CODESIGN_IDENTITY:--}"
@@ -37,6 +38,16 @@ CLEAN_LOCAL_CODESIGN_KEYCHAIN="${EASYTIER_CLEAN_LOCAL_CODESIGN_KEYCHAIN:-}"
 
 if [[ "$BUILD_CONFIGURATION" != "debug" && "$BUILD_CONFIGURATION" != "release" ]]; then
   echo "EASYTIER_BUILD_CONFIGURATION must be 'debug' or 'release'." >&2
+  exit 1
+fi
+
+if [[ -z "$APP_VERSION" && "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+  APP_VERSION="${GITHUB_REF_NAME:-}"
+fi
+APP_VERSION="${APP_VERSION#v}"
+APP_VERSION="${APP_VERSION:-0.1.0}"
+if [[ ! "$APP_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+  echo "EASYTIER_APP_VERSION must be a numeric version like 0.2.0; got '$APP_VERSION'." >&2
   exit 1
 fi
 
@@ -581,7 +592,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>$APP_VERSION</string>
     <key>CFBundleVersion</key>
     <string>$BUILD_NUMBER</string>
     <key>EasyTierBuildTime</key>

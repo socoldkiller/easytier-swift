@@ -232,6 +232,16 @@ jobs:
               "$EASYTIER_EXPORT_APP_DIR" \
               ".build/artifacts/EasyTier-macOS-${{ runner.arch }}.dmg"
 
+          BUNDLE_SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EASYTIER_EXPORT_APP_DIR/Contents/Info.plist")"
+          BUNDLE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EASYTIER_EXPORT_APP_DIR/Contents/Info.plist")"
+          cat > ".build/artifacts/EasyTier-macOS-${{ runner.arch }}.metadata.json" <<EOF
+          {
+            "architecture": "${{ runner.arch }}",
+            "version": "$BUNDLE_SHORT_VERSION",
+            "build": "$BUNDLE_VERSION"
+          }
+          EOF
+
           # Only upload the installable archive and helper files. Uploading the
           # loose .app directory makes artifact installs ambiguous and can leave
           # ServiceManagement records pointing at the Downloads extraction path.
@@ -252,6 +262,11 @@ jobs:
     runs-on: easytier-macos
     permissions:
       contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Download app artifact
@@ -294,3 +309,87 @@ jobs:
             gh release create "$TAG_NAME" --repo "$REPOSITORY" --title "$TAG_NAME" --notes-file "$NOTES_PATH"
           gh release edit "$TAG_NAME" --repo "$REPOSITORY" --notes-file "$NOTES_PATH"
           gh release upload "$TAG_NAME" .build/release-artifacts/*.dmg --repo "$REPOSITORY" --clobber
+
+      - name: Generate update feed
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          mkdir -p .build/pages
+          python3 - <<'PY'
+          import glob
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import sys
+
+          tag = os.environ["TAG_NAME"]
+          repository = os.environ["REPOSITORY"]
+          tag_version = tag[1:] if tag.startswith(("v", "V")) else tag
+          metadata_versions = []
+          metadata_builds = []
+          for metadata_path in sorted(glob.glob(".build/release-artifacts/*.metadata.json")):
+              with open(metadata_path, "r", encoding="utf-8") as handle:
+                  metadata = json.load(handle)
+              if metadata.get("version"):
+                  metadata_versions.append(str(metadata["version"]))
+              if metadata.get("build"):
+                  metadata_builds.append(str(metadata["build"]))
+          version = metadata_versions[0] if metadata_versions else tag_version
+          if any(item != version for item in metadata_versions):
+              print(f"Release artifacts disagree on version: {metadata_versions}", file=sys.stderr)
+              sys.exit(1)
+          build = max(metadata_builds, key=lambda item: int(item) if item.isdigit() else 0) if metadata_builds else "0"
+          arch_names = {
+              "ARM64": "arm64",
+              "arm64": "arm64",
+              "X64": "x86_64",
+              "x64": "x86_64",
+              "x86_64": "x86_64",
+          }
+          assets = {}
+          for path in sorted(glob.glob(".build/release-artifacts/*.dmg")):
+              file_path = pathlib.Path(path)
+              arch_token = file_path.stem.split("-")[-1]
+              arch = arch_names.get(arch_token, arch_token)
+              hasher = hashlib.sha256()
+              with file_path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      hasher.update(chunk)
+              assets[arch] = {
+                  "url": f"https://github.com/{repository}/releases/download/{tag}/{file_path.name}",
+                  "sha256": hasher.hexdigest(),
+                  "size": file_path.stat().st_size,
+              }
+
+          if not assets:
+              print("No DMG assets found for update feed.", file=sys.stderr)
+              sys.exit(1)
+
+          manifest = {
+              "schemaVersion": 1,
+              "channel": "stable",
+              "version": version,
+              "build": build,
+              "tag": tag,
+              "minimumSystemVersion": "14.0",
+              "releaseNotesURL": f"https://github.com/{repository}/releases/tag/{tag}",
+              "assets": assets,
+          }
+          with open(".build/pages/update.json", "w", encoding="utf-8") as handle:
+              json.dump(manifest, handle, indent=2, sort_keys=True)
+              handle.write("\n")
+          PY
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload update feed page artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: .build/pages
+
+      - name: Deploy update feed to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

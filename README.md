@@ -120,7 +120,19 @@ cleanup of Background Task Management state.
 
 Download the packaged app from the workflow artifact named
 `EasyTier-macOS-<arch>`. Pushing a version tag such as `v0.1.0` also publishes
-the same `.app.zip` to the GitHub Release for that tag.
+the same `.dmg` to the GitHub Release for that tag and refreshes the stable
+update feed at `https://socoldkiller.github.io/easytier-swift/update.json`.
+
+The in-app updater is a manual, Sparkle-style v1 flow: **Check for Updates...**
+reads the static GitHub Pages feed, downloads the matching architecture DMG to
+`~/Downloads/EasyTier Updates`, verifies its SHA-256 digest, opens the DMG, and
+asks the user to quit EasyTier before replacing the app. It does not bypass
+Gatekeeper and does not auto-replace `/Applications/EasyTier.app`. For local
+updater testing, point the app at a fixture feed:
+
+```sh
+EASYTIER_UPDATE_MANIFEST_URL=/path/to/update.json swift run EasyTierMac
+```
 
 The vendored EasyTier core is built from tag `v2.6.4` by default. Override it
 for a one-off core upgrade with `EASYTIER_CORE_TAG=vX.Y.Z ./scripts/build-ffi.sh`.

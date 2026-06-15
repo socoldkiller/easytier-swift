@@ -2,8 +2,7 @@ import AppKit
 import SwiftUI
 
 struct AboutView: View {
-    @State private var automaticUpdates = true
-    @State private var unstableUpdates = false
+    @Environment(SoftwareUpdateController.self) private var updater
 
     private let appInfo = AppVersionInfo.current
     private let revisions = SourceRevisionInfo.current
@@ -11,7 +10,6 @@ struct AboutView: View {
     private let background = Color(red: 0.19, green: 0.21, blue: 0.21)
     private let primaryText = Color.white.opacity(0.86)
     private let secondaryText = Color.white.opacity(0.56)
-    private let mutedText = Color.white.opacity(0.36)
     private let divider = Color.white.opacity(0.13)
     private let linkBlue = Color(red: 0.10, green: 0.55, blue: 0.95)
 
@@ -55,9 +53,9 @@ struct AboutView: View {
 
                     HStack(spacing: 14) {
                         AboutLink("Docs", url: "https://easytier.cn", color: linkBlue)
-                        AboutLink("Releases", url: "https://github.com/EasyTier/EasyTier/releases", color: linkBlue)
-                        AboutLink("GitHub", url: "https://github.com/EasyTier/EasyTier", color: linkBlue)
-                        AboutLink("License", url: "https://github.com/EasyTier/EasyTier/blob/main/LICENSE", color: linkBlue)
+                        AboutLink("Releases", url: "https://github.com/socoldkiller/easytier-swift/releases", color: linkBlue)
+                        AboutLink("GitHub", url: "https://github.com/socoldkiller/easytier-swift", color: linkBlue)
+                        AboutLink("License", url: "https://github.com/socoldkiller/easytier-swift/blob/main/LICENSE", color: linkBlue)
                     }
                     .padding(.top, 2)
 
@@ -80,18 +78,22 @@ struct AboutView: View {
 
     private var maintenance: some View {
         HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 10) {
-                DisabledCheckboxRow(title: "Install updates automatically", isOn: $automaticUpdates, textColor: mutedText)
-                DisabledCheckboxRow(title: "Include unstable releases", isOn: $unstableUpdates, textColor: primaryText)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Software Update")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(primaryText)
+                Text("Manual stable release checks from GitHub.")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(secondaryText)
             }
 
             Spacer(minLength: 0)
 
             VStack(alignment: .trailing, spacing: 7) {
-                Button("Check Now") {}
+                Button(updater.isChecking ? "Checking..." : "Check Now") { updater.checkForUpdates() }
                     .font(.system(size: 12, weight: .regular))
-                    .disabled(true)
-                Text("Updater not connected yet.")
+                    .disabled(updater.isChecking)
+                Text(updateStatusText)
                     .font(.system(size: 10, weight: .regular))
                     .foregroundStyle(secondaryText)
             }
@@ -100,9 +102,27 @@ struct AboutView: View {
         .padding(.vertical, 20)
     }
 
+    private var updateStatusText: String {
+        switch updater.state {
+        case .checking:
+            return "Checking stable releases..."
+        case .noUpdate:
+            return "EasyTier is up to date."
+        case .available(let update, _):
+            return "EasyTier \(update.version) is available."
+        case .downloading:
+            return "Downloading update..."
+        case .readyToInstall:
+            return "DMG opened. Quit before replacing EasyTier."
+        case .failed, .downloadFailed, .verificationFailed:
+            return "Updater needs attention."
+        case .idle:
+            return "Checks stable releases only."
+        }
+    }
 }
 
-private struct EasyTierMark: View {
+struct EasyTierMark: View {
     var body: some View {
         Image(nsImage: Self.iconImage)
             .resizable()
@@ -163,83 +183,6 @@ private struct AboutLink: View {
     private func openURL() {
         guard let url = URL(string: url) else { return }
         NSWorkspace.shared.open(url)
-    }
-}
-
-private struct DisabledCheckboxRow: View {
-    var title: String
-    @Binding var isOn: Bool
-    var textColor: Color
-
-    var body: some View {
-        HStack(spacing: 7) {
-            Toggle("", isOn: $isOn)
-                .labelsHidden()
-                .controlSize(.small)
-                .disabled(true)
-            Text(title)
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(textColor)
-            Image(systemName: "info.circle")
-                .font(.system(size: 10, weight: .regular))
-                .foregroundStyle(Color.white.opacity(0.42))
-        }
-    }
-}
-
-private struct AppVersionInfo: Equatable {
-    var version: String
-    var build: String
-    var bundleIdentifier: String
-
-    static var current: AppVersionInfo {
-        AppVersionInfo(bundle: .main)
-    }
-
-    init(bundle: Bundle) {
-        let info = bundle.infoDictionary ?? [:]
-        version = info["CFBundleShortVersionString"] as? String ?? "Development"
-        build = Self.formattedBuildTime(from: info["EasyTierBuildTime"] as? String)
-            ?? Self.formattedExecutableModificationDate(bundle: bundle)
-            ?? Self.formattedBuildTime(from: info["CFBundleVersion"] as? String)
-            ?? "Local"
-        bundleIdentifier = bundle.bundleIdentifier ?? "com.kkrainbow.easytier.mac"
-    }
-
-    private static func formattedExecutableModificationDate(bundle: Bundle) -> String? {
-        guard let executableURL = bundle.executableURL,
-              let values = try? executableURL.resourceValues(forKeys: [.contentModificationDateKey]),
-              let date = values.contentModificationDate else { return nil }
-        return formattedBuildDate(date)
-    }
-
-    private static func formattedBuildTime(from rawValue: String?) -> String? {
-        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !rawValue.isEmpty else {
-            return nil
-        }
-
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime]
-        if let date = isoFormatter.date(from: rawValue) {
-            return formattedBuildDate(date)
-        }
-
-        let compactFormatter = DateFormatter()
-        compactFormatter.locale = Locale(identifier: "en_US_POSIX")
-        compactFormatter.timeZone = TimeZone(secondsFromGMT: 0)
-        compactFormatter.dateFormat = "yyyyMMddHHmmss"
-        if let date = compactFormatter.date(from: rawValue) {
-            return formattedBuildDate(date)
-        }
-
-        return nil
-    }
-
-    private static func formattedBuildDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return formatter.string(from: date)
     }
 }
 
