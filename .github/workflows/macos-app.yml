@@ -385,6 +385,12 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
+      - name: Install Pages artifact dependencies
+        run: |
+          if ! command -v gtar >/dev/null 2>&1; then
+            brew install gnu-tar
+          fi
+
       - name: Upload update feed page artifact
         uses: actions/upload-pages-artifact@v4
         with:
