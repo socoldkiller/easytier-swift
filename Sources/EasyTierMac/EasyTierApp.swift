@@ -182,7 +182,7 @@ private enum MenuBarConnectionIcon {
     }
 
     private static func drawNode(at point: CGPoint, state: ConnectionGlyphState, index: Int, activeNodeIndex: Int?) {
-        let radius: CGFloat = 2.0
+        let radius: CGFloat = 2.5
         let stroke = nodeStrokeColor(for: state, index: index)
             .withAlphaComponent(nodeStrokeAlpha(for: state, index: index, activeNodeIndex: activeNodeIndex))
         let fill = nodeFillColor(for: state, index: index, activeNodeIndex: activeNodeIndex)

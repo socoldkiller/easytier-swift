@@ -11,6 +11,7 @@ struct ConnectionGlyph: View {
     var state: ConnectionGlyphState
     var size: CGFloat = 18
     var templateMode = false
+    var statusNodeColor: Color?
 
     @State private var activeConnectingNodeIndex = 0
 
@@ -100,6 +101,10 @@ struct ConnectionGlyph: View {
     }
 
     private func nodeFill(for node: ConnectionGlyphNode, activeConnectingNode: ConnectionGlyphNode?) -> Color {
+        if !templateMode, node == .bottomRight, let statusNodeColor {
+            return statusNodeColor
+        }
+
         if templateMode {
             return .primary.opacity(nodeOpacity(for: node, activeConnectingNode: activeConnectingNode))
         }
