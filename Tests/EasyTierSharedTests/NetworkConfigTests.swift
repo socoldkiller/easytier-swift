@@ -207,6 +207,45 @@ import Testing
     #expect(loaded.lastSelectedConfigID == "abc")
 }
 
+@Test func defaultStorageUsesBundleSpecificAppSupportDirectory() {
+    #expect(EasyTierStorage.default.baseDirectory.lastPathComponent == "com.kkrainbow.easytier.mac")
+}
+
+@Test func storageMigratesLegacySnapshotIntoPrimaryDirectory() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let primaryDirectory = root.appendingPathComponent("com.kkrainbow.easytier.mac", isDirectory: true)
+    let legacyDirectory = root.appendingPathComponent("EasyTier", isDirectory: true)
+    let legacyStorage = EasyTierStorage(baseDirectory: legacyDirectory)
+    let storage = EasyTierStorage(baseDirectory: primaryDirectory, legacyBaseDirectories: [legacyDirectory])
+    let snapshot = AppSnapshot(configs: [StoredNetworkConfig(config: NetworkConfig(network_name: "legacy"))], mode: .default, lastSelectedConfigID: "legacy-id")
+
+    try legacyStorage.save(snapshot)
+
+    let loaded = try storage.load()
+
+    #expect(loaded.configs.first?.config.network_name == "legacy")
+    #expect(try storage.load().lastSelectedConfigID == "legacy-id")
+    #expect(FileManager.default.fileExists(atPath: primaryDirectory.appendingPathComponent("state.json").path))
+}
+
+@Test func storageSavesOnlyToPrimaryDirectoryWhenLegacyDirectoryExists() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let primaryDirectory = root.appendingPathComponent("com.kkrainbow.easytier.mac", isDirectory: true)
+    let legacyDirectory = root.appendingPathComponent("EasyTier", isDirectory: true)
+    let legacyStorage = EasyTierStorage(baseDirectory: legacyDirectory)
+    let storage = EasyTierStorage(baseDirectory: primaryDirectory, legacyBaseDirectories: [legacyDirectory])
+
+    try legacyStorage.save(AppSnapshot(configs: [StoredNetworkConfig(config: NetworkConfig(network_name: "legacy"))], mode: .default, lastSelectedConfigID: "legacy-id"))
+    try storage.save(AppSnapshot(configs: [StoredNetworkConfig(config: NetworkConfig(network_name: "primary"))], mode: .default, lastSelectedConfigID: "primary-id"))
+
+    #expect(try storage.load().configs.first?.config.network_name == "primary")
+    #expect(try legacyStorage.load().configs.first?.config.network_name == "legacy")
+}
+
 @MainActor
 @Test func selectedConfigDoesNotFallBackToFirstConfigWhenSelectionIsCleared() {
     let first = NetworkConfig(instance_id: "first-id", network_name: "first-network")

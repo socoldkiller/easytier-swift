@@ -33,6 +33,7 @@ final class PermissionController {
 
     func install() {
         do {
+            try? service.unregister()
             try service.register()
             refresh()
         } catch {
