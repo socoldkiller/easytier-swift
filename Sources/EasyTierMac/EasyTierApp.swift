@@ -7,6 +7,7 @@ import SwiftUI
 struct EasyTierApp: App {
     @State private var store = EasyTierAppStore()
     @State private var updater = SoftwareUpdateController()
+    @State private var menuBarController = MenuBarStatusItemController()
 
     init() {
         Self.runHelperCommandIfRequested()
@@ -17,6 +18,15 @@ struct EasyTierApp: App {
             ContentView()
                 .environment(store)
                 .environment(updater)
+                .background(
+                    MenuBarStatusItemBridge(
+                        controller: menuBarController,
+                        store: store,
+                        updater: updater,
+                        connectionState: menuBarConnectionState
+                    )
+                    .frame(width: 0, height: 0)
+                )
                 .frame(minWidth: 900, minHeight: 620)
                 .task { await store.load() }
         }
@@ -35,15 +45,6 @@ struct EasyTierApp: App {
                 Button("Check for Updates...") { updater.checkForUpdates() }
             }
         }
-
-        MenuBarExtra {
-            MenuBarContent()
-                .environment(store)
-                .environment(updater)
-        } label: {
-            MenuBarConnectionLabel(state: menuBarConnectionState)
-        }
-        .menuBarExtraStyle(.window)
     }
 
     private var menuBarConnectionState: ConnectionGlyphState {
@@ -104,6 +105,162 @@ struct EasyTierApp: App {
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 30))
         fputs("helper command timed out\n", stderr)
         Foundation.exit(EXIT_FAILURE)
+    }
+}
+
+private struct MenuBarStatusItemBridge: NSViewRepresentable {
+    @Environment(\.openWindow) private var openWindow
+
+    var controller: MenuBarStatusItemController
+    var store: EasyTierAppStore
+    var updater: SoftwareUpdateController
+    var connectionState: ConnectionGlyphState
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        controller.update(
+            store: store,
+            updater: updater,
+            connectionState: connectionState,
+            openMainWindow: openMainWindow
+        )
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        controller.update(
+            store: store,
+            updater: updater,
+            connectionState: connectionState,
+            openMainWindow: openMainWindow
+        )
+    }
+
+    private func openMainWindow() {
+        openWindow(id: "main")
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+@MainActor
+private final class MenuBarStatusItemController: NSObject {
+    private var statusItem: NSStatusItem?
+    private let popover = NSPopover()
+    private var hostingController: NSHostingController<AnyView>?
+    private var connectionState: ConnectionGlyphState = .idle
+    private var activeNodeIndex = 0
+    private var animationTask: Task<Void, Never>?
+    private var openMainWindowAction: (() -> Void)?
+
+    private static let popoverSize = NSSize(width: 292, height: 302)
+    private static let counterclockwiseNodeIndexes = [0, 1, 2]
+    private static let stepDurationNanoseconds: UInt64 = 340_000_000
+
+    override init() {
+        super.init()
+        popover.behavior = .transient
+        popover.contentSize = Self.popoverSize
+    }
+
+    func update(
+        store: EasyTierAppStore,
+        updater: SoftwareUpdateController,
+        connectionState: ConnectionGlyphState,
+        openMainWindow: @escaping () -> Void
+    ) {
+        installStatusItemIfNeeded()
+        openMainWindowAction = openMainWindow
+
+        if self.connectionState != connectionState {
+            self.connectionState = connectionState
+            activeNodeIndex = 0
+            updateAnimation()
+        }
+
+        refreshStatusImage()
+        updatePopoverContent(store: store, updater: updater)
+    }
+
+    func closePopover() {
+        popover.performClose(nil)
+    }
+
+    private func installStatusItemIfNeeded() {
+        guard statusItem == nil else { return }
+
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = item.button {
+            button.target = self
+            button.action = #selector(statusItemClicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.imagePosition = .imageOnly
+            button.imageScaling = .scaleProportionallyDown
+        }
+        statusItem = item
+    }
+
+    private func updatePopoverContent(store: EasyTierAppStore, updater: SoftwareUpdateController) {
+        guard hostingController == nil else {
+            popover.contentSize = Self.popoverSize
+            return
+        }
+
+        let content = MenuBarContent(
+            openMainWindowAction: { [weak self] in self?.openMainWindowAction?() },
+            dismissMenuBarAction: { [weak self] in self?.closePopover() }
+        )
+        .environment(store)
+        .environment(updater)
+
+        let rootView = AnyView(content)
+        let controller = NSHostingController(rootView: rootView)
+        controller.view.frame = NSRect(origin: .zero, size: Self.popoverSize)
+        hostingController = controller
+        popover.contentViewController = controller
+        popover.contentSize = Self.popoverSize
+    }
+
+    private func refreshStatusImage() {
+        let currentActiveNodeIndex: Int?
+        if connectionState == .connecting {
+            currentActiveNodeIndex = Self.counterclockwiseNodeIndexes[activeNodeIndex % Self.counterclockwiseNodeIndexes.count]
+        } else {
+            currentActiveNodeIndex = nil
+        }
+
+        statusItem?.button?.image = MenuBarConnectionIcon.image(for: connectionState, activeNodeIndex: currentActiveNodeIndex)
+    }
+
+    private func updateAnimation() {
+        animationTask?.cancel()
+
+        guard connectionState == .connecting else { return }
+        animationTask = Task { [weak self] in
+            await self?.runConnectingAnimation()
+        }
+    }
+
+    private func runConnectingAnimation() async {
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(nanoseconds: Self.stepDurationNanoseconds)
+            } catch {
+                break
+            }
+            activeNodeIndex = (activeNodeIndex + 1) % Self.counterclockwiseNodeIndexes.count
+            refreshStatusImage()
+        }
+    }
+
+    @objc private func statusItemClicked(_ sender: Any?) {
+        guard let button = statusItem?.button else { return }
+
+        if popover.isShown {
+            closePopover()
+        } else {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 }
 
@@ -265,6 +422,10 @@ private enum MenuBarConnectionIcon {
 private struct MenuBarContent: View {
     @Environment(EasyTierAppStore.self) private var store
     @Environment(\.openWindow) private var openWindow
+
+    var openMainWindowAction: (() -> Void)?
+    var dismissMenuBarAction: (() -> Void)?
+
     @State private var copiedDeviceAddress = false
     @State private var copyFeedbackToken = 0
 
@@ -303,7 +464,7 @@ private struct MenuBarContent: View {
                 subtitle: selectedNetworkSubtitle,
                 state: selectedNetworkState,
                 canSwitch: canSwitchNetworks,
-                open: openMainWindow,
+                open: openMainWindowAndDismiss,
                 previous: selectPreviousNetwork,
                 next: selectNextNetwork
             )
@@ -320,6 +481,7 @@ private struct MenuBarContent: View {
             MenuBarListButton(title: "About EasyTier") {
                 openMainWindow()
                 store.isShowingAbout = true
+                dismissMenuBar()
             }
 
             MenuBarDivider()
@@ -327,6 +489,7 @@ private struct MenuBarContent: View {
             MenuBarListButton(title: "Settings...", shortcut: "⌘ ,") {
                 store.selectedTab = .config
                 openMainWindow()
+                dismissMenuBar()
             }
 
             MenuBarDivider()
@@ -409,8 +572,22 @@ private struct MenuBarContent: View {
     }
 
     private func openMainWindow() {
+        if let openMainWindowAction {
+            openMainWindowAction()
+            return
+        }
+
         openWindow(id: "main")
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func openMainWindowAndDismiss() {
+        openMainWindow()
+        dismissMenuBar()
+    }
+
+    private func dismissMenuBar() {
+        dismissMenuBarAction?()
     }
 
     private func toggleConnection() {

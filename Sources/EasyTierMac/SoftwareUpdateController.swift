@@ -28,10 +28,12 @@ final class SoftwareUpdateController {
         return false
     }
 
-    func checkForUpdates() {
-        showWindow()
+    func checkForUpdates(presentsWindow: Bool = true) {
+        if presentsWindow {
+            showWindow()
+        }
         activeTask?.cancel()
-        activeTask = Task { await runUpdateCheck() }
+        activeTask = Task { await runUpdateCheck(presentsWindow: presentsWindow) }
     }
 
     func downloadAvailableUpdate() {
@@ -59,7 +61,7 @@ final class SoftwareUpdateController {
         NSApp.terminate(nil)
     }
 
-    private func runUpdateCheck() async {
+    private func runUpdateCheck(presentsWindow: Bool) async {
         state = .checking
         do {
             let manifest = try await service.fetchManifest()
@@ -72,10 +74,22 @@ final class SoftwareUpdateController {
                 architecture: Self.currentArchitecture
             )
             state = update.map { .available($0, currentVersion: appInfo.version) } ?? .noUpdate(currentVersion: appInfo.version)
+            presentWindowIfNeeded(presentsWindow: presentsWindow)
         } catch is CancellationError {
             return
         } catch {
             state = .failed(message: Self.message(for: error))
+            presentWindowIfNeeded(presentsWindow: presentsWindow)
+        }
+    }
+
+    private func presentWindowIfNeeded(presentsWindow: Bool) {
+        guard !presentsWindow else { return }
+        switch state {
+        case .available, .failed:
+            showWindow()
+        default:
+            break
         }
     }
 

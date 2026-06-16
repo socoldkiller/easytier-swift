@@ -90,16 +90,29 @@ struct AboutView: View {
             Spacer(minLength: 0)
 
             VStack(alignment: .trailing, spacing: 7) {
-                Button(updater.isChecking ? "Checking..." : "Check Now") { updater.checkForUpdates() }
+                Button(updater.isChecking ? "Checking..." : "Check Now") { updater.checkForUpdates(presentsWindow: false) }
                     .font(.system(size: 12, weight: .regular))
                     .disabled(updater.isChecking)
-                Text(updateStatusText)
-                    .font(.system(size: 10, weight: .regular))
-                    .foregroundStyle(secondaryText)
+                updateStatusLine
             }
         }
         .padding(.horizontal, 32)
         .padding(.vertical, 20)
+    }
+
+    private var updateStatusLine: some View {
+        HStack(spacing: 5) {
+            if isUpToDate {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color.green.opacity(0.82))
+            }
+            Text(updateStatusText)
+                .font(.system(size: 10, weight: .regular))
+                .foregroundStyle(secondaryText)
+        }
+        .frame(minHeight: 13, alignment: .trailing)
+        .contentTransition(.opacity)
     }
 
     private var updateStatusText: String {
@@ -107,7 +120,7 @@ struct AboutView: View {
         case .checking:
             return "Checking stable releases..."
         case .noUpdate:
-            return "EasyTier is up to date."
+            return "EasyTier is already the latest version."
         case .available(let update, _):
             return "EasyTier \(update.version) is available."
         case .downloading:
@@ -119,6 +132,11 @@ struct AboutView: View {
         case .idle:
             return "Checks stable releases only."
         }
+    }
+
+    private var isUpToDate: Bool {
+        if case .noUpdate = updater.state { return true }
+        return false
     }
 }
 
