@@ -5,6 +5,7 @@ SHELL := /bin/bash
 ROOT_DIR := $(CURDIR)
 ARTIFACTS_DIR ?= $(ROOT_DIR)/.build/artifacts
 APP_PATH ?= $(ARTIFACTS_DIR)/EasyTier.app
+INSTALL_APP_PATH ?= /Applications/EasyTier.app
 ARCH := $(shell uname -m)
 DMG_PATH ?= $(ARTIFACTS_DIR)/EasyTier-macOS-$(ARCH).dmg
 LOCAL_CERT_PATH ?= $(ARTIFACTS_DIR)/EasyTierLocalCodeSigning.cer
@@ -131,6 +132,6 @@ verify-app:
 	./scripts/verify-app.sh "$(APP_PATH)"
 
 install-helper:
-	EASYTIER_EXPORT_APP_DIR="$(APP_PATH)" \
+	EASYTIER_EXPORT_APP_DIR="$(INSTALL_APP_PATH)" \
 	EASYTIER_OPEN_APP=1 \
 	./scripts/dev-install-helper.sh

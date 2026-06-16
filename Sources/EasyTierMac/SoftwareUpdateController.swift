@@ -2,6 +2,7 @@ import AppKit
 import EasyTierShared
 import Foundation
 import Observation
+import ServiceManagement
 import SwiftUI
 
 @MainActor
@@ -105,6 +106,7 @@ final class SoftwareUpdateController {
                 state = .verificationFailed(update, message: "The downloaded DMG did not match the published checksum.")
                 return
             }
+            await unregisterHelperBeforeOpeningUpdate()
             guard NSWorkspace.shared.open(fileURL) else {
                 state = .downloadFailed(update, message: "The DMG was downloaded, but macOS could not open it.")
                 return
@@ -169,6 +171,11 @@ final class SoftwareUpdateController {
     }
 
     private static let skippedVersionKey = "EasyTierUpdaterSkippedVersion"
+
+    private func unregisterHelperBeforeOpeningUpdate() async {
+        let service = SMAppService.daemon(plistName: EasyTierPrivilegedHelperConstants.launchDaemonPlistName)
+        try? await service.unregister()
+    }
 }
 
 enum SoftwareUpdateState: Equatable {

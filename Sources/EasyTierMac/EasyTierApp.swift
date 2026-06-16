@@ -66,6 +66,11 @@ struct EasyTierApp: App {
 
         let service = SMAppService.daemon(plistName: EasyTierPrivilegedHelperConstants.launchDaemonPlistName)
         do {
+            if arguments.contains("--register-helper"), let locationError = helperInstallLocationError() {
+                fputs("helper command failed: \(locationError)\n", stderr)
+                print("helper status: \(Self.describe(service.status))")
+                Foundation.exit(EXIT_FAILURE)
+            }
             if arguments.contains("--unregister-helper") || arguments.contains("--register-helper") {
                 try? service.unregister()
             }
@@ -79,6 +84,18 @@ struct EasyTierApp: App {
             print("helper status: \(Self.describe(service.status))")
             Foundation.exit(EXIT_FAILURE)
         }
+    }
+
+    private static func helperInstallLocationError() -> String? {
+        if ProcessInfo.processInfo.environment["EASYTIER_ALLOW_UNSTABLE_HELPER_INSTALL"] == "1" {
+            return nil
+        }
+
+        let path = Bundle.main.bundleURL.standardizedFileURL.path
+        guard path == "/Applications/EasyTier.app" else {
+            return "Move EasyTier.app to /Applications/EasyTier.app before installing the privileged helper. Current app path: \(path)"
+        }
+        return nil
     }
 
     private static func describe(_ status: SMAppService.Status) -> String {
@@ -428,6 +445,7 @@ private struct MenuBarContent: View {
 
     @State private var copiedDeviceAddress = false
     @State private var copyFeedbackToken = 0
+    @State private var isConnectionSwitchHovering = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -449,9 +467,12 @@ private struct MenuBarContent: View {
 
                 Button(action: toggleConnection) {
                     MenuBarConnectionSwitch(isOn: store.selectedConfigIsRunning, isBusy: store.isBusy)
+                        .padding(4)
+                        .background(connectionSwitchBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                     .buttonStyle(.plain)
                     .disabled(store.isBusy || store.selectedConfig == nil)
+                    .onHover { isConnectionSwitchHovering = $0 }
             }
             .padding(.horizontal, 12)
             .padding(.top, 8)
@@ -565,6 +586,11 @@ private struct MenuBarContent: View {
         return store.instanceIsFullyConnected(instance) ? MenuBarPalette.connected : .yellow.opacity(0.82)
     }
 
+    private var connectionSwitchBackground: Color {
+        guard isConnectionSwitchHovering, !store.isBusy, store.selectedConfig != nil else { return .clear }
+        return MenuBarPalette.selectedRow
+    }
+
     private var selectedNetworkSubtitle: String {
         if store.selectedConfig == nil { return "Select a network" }
         guard let instance = selectedRunningInstance else { return "Disconnected" }
@@ -636,6 +662,10 @@ private enum MenuBarPalette {
     static let mutedText = Color.white.opacity(0.34)
     static let divider = Color.white.opacity(0.16)
     static let rowHighlight = Color.white.opacity(0.08)
+    static let selectedRow = Color(red: 0.10, green: 0.37, blue: 0.78)
+    static let selectedRowHorizontalInset: CGFloat = 12
+    static let selectedRowVerticalInset: CGFloat = 5
+    static let selectedRowContentVerticalPadding: CGFloat = 4
     static let connected = Color(red: 0.35, green: 0.78, blue: 0.42)
 }
 
@@ -717,6 +747,8 @@ private struct MenuBarNetworkRow: View {
     var previous: () -> Void
     var next: () -> Void
 
+    @State private var isOpenHovering = false
+
     var body: some View {
         HStack(spacing: 8) {
             Button(action: open) {
@@ -725,10 +757,11 @@ private struct MenuBarNetworkRow: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(name)
                             .font(.system(size: 13.5, weight: .medium))
+                            .foregroundStyle(primaryTextColor)
                             .lineLimit(1)
                         Text(subtitle)
                             .font(.system(size: 13.5, weight: .regular))
-                            .foregroundStyle(MenuBarPalette.secondaryText)
+                            .foregroundStyle(secondaryTextColor)
                             .lineLimit(1)
                     }
                     Spacer(minLength: 0)
@@ -736,13 +769,17 @@ private struct MenuBarNetworkRow: View {
                     if !canSwitch {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(MenuBarPalette.primaryText)
+                            .foregroundStyle(primaryTextColor)
                     }
                 }
                 .contentShape(Rectangle())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(rowBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity)
+            .onHover { isOpenHovering = $0 }
 
             if canSwitch {
                 HStack(spacing: 2) {
@@ -751,8 +788,21 @@ private struct MenuBarNetworkRow: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, MenuBarPalette.selectedRowHorizontalInset)
+        .padding(.vertical, MenuBarPalette.selectedRowVerticalInset)
+        .animation(.easeOut(duration: 0.14), value: isOpenHovering)
+    }
+
+    private var primaryTextColor: Color {
+        isOpenHovering ? Color.white.opacity(0.96) : MenuBarPalette.primaryText
+    }
+
+    private var secondaryTextColor: Color {
+        isOpenHovering ? Color.white.opacity(0.78) : MenuBarPalette.secondaryText
+    }
+
+    private var rowBackground: Color {
+        isOpenHovering ? MenuBarPalette.selectedRow : .clear
     }
 }
 
@@ -767,7 +817,7 @@ private struct MenuBarIconButton: View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(MenuBarPalette.primaryText)
+                .foregroundStyle(isHovering ? Color.white.opacity(0.96) : MenuBarPalette.primaryText)
                 .frame(width: 24, height: 28)
                 .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .background(buttonBackground, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -779,7 +829,7 @@ private struct MenuBarIconButton: View {
     }
 
     private var buttonBackground: Color {
-        isHovering ? MenuBarPalette.rowHighlight : Color.white.opacity(0.04)
+        isHovering ? MenuBarPalette.selectedRow : Color.white.opacity(0.04)
     }
 }
 
@@ -813,21 +863,22 @@ private struct MenuBarCopyRow: View {
             HStack(spacing: 8) {
                 Text(title)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(isDisabled ? MenuBarPalette.mutedText : MenuBarPalette.primaryText)
+                    .foregroundStyle(titleColor)
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 Image(systemName: isCopied ? "checkmark.circle.fill" : "doc.on.doc")
                     .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(isCopied ? MenuBarPalette.connected : MenuBarPalette.secondaryText)
+                    .foregroundStyle(iconColor)
                     .frame(width: 18, height: 18)
                     .opacity(isDisabled ? 0 : 1)
                     .contentTransition(.symbolEffect(.replace))
             }
             .contentShape(Rectangle())
             .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(rowBackground, in: RoundedRectangle(cornerRadius: 6))
-            .padding(.horizontal, 6)
+            .padding(.vertical, MenuBarPalette.selectedRowContentVerticalPadding)
+            .background(rowBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.horizontal, MenuBarPalette.selectedRowHorizontalInset)
+            .padding(.vertical, MenuBarPalette.selectedRowVerticalInset)
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
@@ -837,9 +888,19 @@ private struct MenuBarCopyRow: View {
         .help("Copy IP address")
     }
 
+    private var titleColor: Color {
+        if isHovering, !isDisabled { return Color.white.opacity(0.96) }
+        return isDisabled ? MenuBarPalette.mutedText : MenuBarPalette.primaryText
+    }
+
+    private var iconColor: Color {
+        if isHovering, !isDisabled { return Color.white.opacity(isCopied ? 0.98 : 0.82) }
+        return isCopied ? MenuBarPalette.connected : MenuBarPalette.secondaryText
+    }
+
     private var rowBackground: Color {
+        if isHovering, !isDisabled { return MenuBarPalette.selectedRow }
         if isCopied { return MenuBarPalette.connected.opacity(0.16) }
-        if isHovering, !isDisabled { return MenuBarPalette.rowHighlight }
         return .clear
     }
 }
@@ -849,22 +910,42 @@ private struct MenuBarListButton: View {
     var shortcut: String?
     var action: () -> Void
 
+    @State private var isHovering = false
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Text(title)
                     .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(primaryTextColor)
                 Spacer(minLength: 0)
                 if let shortcut {
                     Text(shortcut)
                         .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(MenuBarPalette.mutedText)
+                        .foregroundStyle(shortcutTextColor)
                 }
             }
             .contentShape(Rectangle())
             .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .padding(.vertical, MenuBarPalette.selectedRowContentVerticalPadding)
+            .background(rowBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.horizontal, MenuBarPalette.selectedRowHorizontalInset)
+            .padding(.vertical, MenuBarPalette.selectedRowVerticalInset)
         }
         .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.14), value: isHovering)
+    }
+
+    private var primaryTextColor: Color {
+        isHovering ? Color.white.opacity(0.96) : MenuBarPalette.primaryText
+    }
+
+    private var shortcutTextColor: Color {
+        isHovering ? Color.white.opacity(0.72) : MenuBarPalette.mutedText
+    }
+
+    private var rowBackground: Color {
+        isHovering ? MenuBarPalette.selectedRow : .clear
     }
 }

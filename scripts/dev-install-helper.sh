@@ -31,7 +31,7 @@ needs_user_approval() {
 cd "$ROOT_DIR"
 
 if [[ "$PACKAGE_FIRST" == "1" ]]; then
-  APP_PATH="$(EASYTIER_RESET_BTM="$RESET_BTM_STATE" ./scripts/package-app.sh | tail -n 1)"
+  APP_PATH="$(EASYTIER_CLEAN_HELPER_STATE=1 EASYTIER_RESET_BTM="$RESET_BTM_STATE" ./scripts/package-app.sh | tail -n 1)"
   APP_BINARY="$APP_PATH/Contents/MacOS/EasyTierMac"
 fi
 

@@ -21,12 +21,7 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 PermissionBanner(controller: permissionController)
 
-                Picker("View", selection: $store.selectedTab) {
-                    ForEach(WorkspaceTab.allCases) { tab in
-                        Text(tab.rawValue).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
+                WorkspaceTabBar(selection: $store.selectedTab)
                 .padding([.horizontal, .top])
 
                 Divider().padding(.top, 12)
@@ -58,11 +53,11 @@ struct ContentView: View {
             loadDraft(for: store.selectedConfigID)
         }
         .task {
-            permissionController.refresh()
+            await permissionController.refresh()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                permissionController.refresh()
+                Task { await permissionController.refresh() }
             }
         }
         .sheet(isPresented: $showingModeSettings) {
@@ -139,7 +134,7 @@ struct ContentView: View {
                 let runningInstanceToRestart = draftIsDirty ? store.selectedRunningInstance : nil
                 commitDraft(saveImmediately: true)
                 Task {
-                    permissionController.refresh()
+                    await permissionController.refresh()
                     guard permissionController.state == .enabled else {
                         store.clearHelperPermissionError()
                         return
@@ -273,6 +268,64 @@ struct ContentView: View {
     }
 }
 
+private struct WorkspaceTabBar: View {
+    @Binding var selection: WorkspaceTab
+
+    private let tabs = WorkspaceTab.allCases
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text("View")
+                .font(.system(size: 13.5, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 44, alignment: .leading)
+
+            HStack(spacing: 0) {
+                ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
+                    tabButton(tab)
+
+                    if index < tabs.count - 1 {
+                        Divider()
+                            .frame(height: 16)
+                            .opacity(selection == tab || selection == tabs[index + 1] ? 0 : 0.55)
+                    }
+                }
+            }
+            .padding(2)
+            .frame(maxWidth: .infinity)
+            .background(.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(.primary.opacity(0.06), lineWidth: 1)
+            }
+        }
+    }
+
+    private func tabButton(_ tab: WorkspaceTab) -> some View {
+        let isSelected = selection == tab
+
+        return Button {
+            selection = tab
+        } label: {
+            Text(tab.rawValue)
+                .font(.system(size: 13.5, weight: isSelected ? .semibold : .medium))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, minHeight: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(0.82))
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color.accentColor)
+            }
+        }
+        .accessibilityLabel(Text(tab.rawValue))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
 private struct PermissionBanner: View {
     var controller: PermissionController
 
@@ -296,12 +349,18 @@ private struct PermissionBanner: View {
                 if controller.state == .requiresApproval {
                     Button("Open Settings") { controller.openSystemSettings() }
                 }
-                Button(controller.state == .requiresApproval ? "Refresh" : "Install Helper") {
-                    if controller.state == .requiresApproval {
-                        controller.refresh()
-                    } else {
-                        controller.install()
+                switch controller.state {
+                case .requiresApproval:
+                    Button("Refresh") { Task { await controller.refresh() } }
+                        .disabled(controller.isBusy)
+                case .error:
+                    Button("Repair Helper") { Task { await controller.repair() } }
+                        .disabled(controller.isBusy)
+                default:
+                    Button("Install Helper") {
+                        Task { await controller.install() }
                     }
+                    .disabled(controller.isBusy)
                 }
             }
             .padding(.horizontal, 16)
@@ -324,7 +383,7 @@ private struct PermissionBanner: View {
                 return
             }
             guard controller.state == .requiresApproval else { return }
-            controller.refresh()
+            await controller.refresh()
         }
     }
 

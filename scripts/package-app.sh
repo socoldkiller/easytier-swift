@@ -330,11 +330,7 @@ EOF
 fi
 
 if [[ -z "$CLEAN_HELPER_STATE" ]]; then
-  if [[ "$REQUIRE_DISTRIBUTION_SIGNING" != "1" ]]; then
-    CLEAN_HELPER_STATE=1
-  else
-    CLEAN_HELPER_STATE=0
-  fi
+  CLEAN_HELPER_STATE=0
 fi
 
 signature_field() {
@@ -389,6 +385,30 @@ Sign both binaries with the same Apple team so SMAppService can launch the privi
 EOF
     exit 1
   fi
+}
+
+verify_exported_app_signature() {
+  local output
+
+  if output="$(codesign --verify --deep --strict --verbose=2 "$EXPORT_APP_DIR" 2>&1)"; then
+    return 0
+  fi
+
+  if [[ "$output" == *"resource fork, Finder information, or similar detritus not allowed"* \
+    && "$output" == *"Disallowed xattr"* ]]; then
+    cat >&2 <<EOF
+Warning: exported EasyTier.app gained File Provider/Finder metadata after export:
+$output
+
+The signed staging app was already verified successfully before export. Move the
+app outside synced folders such as Documents/iCloud, or build with
+ARTIFACTS_DIR=/tmp/easytier-artifacts, if macOS refuses to launch this debug app.
+EOF
+    return 0
+  fi
+
+  printf '%s\n' "$output" >&2
+  return 1
 }
 
 sign_macho() {
@@ -663,7 +683,7 @@ mkdir -p "$(dirname "$EXPORT_APP_DIR")"
 ditto --noextattr --norsrc "$APP_DIR" "$EXPORT_APP_DIR"
 clear_codesign_blocking_xattrs "$EXPORT_APP_DIR"
 clear_finder_info "$EXPORT_APP_DIR"
-codesign --verify --deep --strict --verbose=2 "$EXPORT_APP_DIR" >/dev/null
+verify_exported_app_signature
 validate_installable_helper_signature "$EXPORT_APP_DIR"
 export_codesigning_certificate_if_requested
 

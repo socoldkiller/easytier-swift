@@ -84,7 +84,7 @@ struct SoftwareUpdateWindowView: View {
         case .readyToInstall(let update, _):
             Text("EasyTier \(update.version) is ready to install.")
                 .font(.system(size: 24, weight: .bold))
-            Text("The DMG is open. Drag EasyTier.app to Applications, then quit this copy before replacing it.")
+            Text("The old helper registration was removed. Drag EasyTier.app to Applications, quit this copy, then install the helper from the new app.")
                 .font(.system(size: 16, weight: .regular))
                 .foregroundStyle(secondaryText)
         }
