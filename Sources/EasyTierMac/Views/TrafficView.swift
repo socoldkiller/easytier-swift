@@ -6,6 +6,8 @@ import SwiftUI
 struct TrafficView: View {
     @Environment(EasyTierAppStore.self) private var store
 
+    private static let rateMetricWidth: CGFloat = 136
+
     private var instance: NetworkInstance? { store.selectedRunningInstance }
     private var samples: [TrafficSample] { store.selectedTrafficSamples }
     private var latest: TrafficSample? { samples.last }
@@ -14,8 +16,8 @@ struct TrafficView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 StatusMetric(title: "Network", value: instance?.name ?? store.selectedConfig?.network_name ?? "-", systemImage: "network")
-                StatusMetric(title: "Upload", value: ByteFormatter.formatRate(latest?.txBytesPerSecond ?? 0), systemImage: "arrow.up")
-                StatusMetric(title: "Download", value: ByteFormatter.formatRate(latest?.rxBytesPerSecond ?? 0), systemImage: "arrow.down")
+                StatusMetric(title: "Upload", value: ByteFormatter.formatRate(latest?.txBytesPerSecond ?? 0), systemImage: "arrow.up", width: Self.rateMetricWidth)
+                StatusMetric(title: "Download", value: ByteFormatter.formatRate(latest?.rxBytesPerSecond ?? 0), systemImage: "arrow.down", width: Self.rateMetricWidth)
                 StatusMetric(title: "Samples", value: "\(samples.count)", systemImage: "waveform.path.ecg")
                 Spacer(minLength: 0)
             }
@@ -40,6 +42,7 @@ private struct StatusMetric: View {
     var title: String
     var value: String
     var systemImage: String
+    var width: CGFloat? = nil
 
     var body: some View {
         HStack(spacing: 9) {
@@ -57,8 +60,10 @@ private struct StatusMetric: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(10)
+        .frame(width: width, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 }
