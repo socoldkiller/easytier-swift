@@ -124,6 +124,8 @@ struct ConfigEditorView: View {
 }
 
 private struct ExpandableSettingsGroup<Content: View>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var title: String
     @ViewBuilder var content: Content
     @State private var isExpanded = false
@@ -136,7 +138,7 @@ private struct ExpandableSettingsGroup<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.16)) {
+                withAnimation(EasyTierMotion.content(reduceMotion: reduceMotion)) {
                     isExpanded.toggle()
                 }
             } label: {
@@ -158,7 +160,7 @@ private struct ExpandableSettingsGroup<Content: View>: View {
             if isExpanded {
                 content
                     .padding(.top, 8)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(reduceMotion ? .opacity : .easyTierSlideFade(edge: .top, distance: 8))
             }
         }
     }
@@ -213,6 +215,8 @@ private struct FieldRow<Content: View>: View {
 }
 
 private struct StringListEditor: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var title: String
     var placeholder: String
     @Binding var values: [String]
@@ -223,27 +227,43 @@ private struct StringListEditor: View {
                 Text(title)
                     .font(.system(size: 13.5, weight: .medium))
                 Spacer()
-                Button { values.append("") } label: { Image(systemName: "plus") }
+                Button {
+                    withAnimation(EasyTierMotion.content(reduceMotion: reduceMotion)) {
+                        values.append("")
+                    }
+                } label: { Image(systemName: "plus") }
                     .buttonStyle(.borderless)
             }
             ForEach(values.indices, id: \.self) { index in
                 HStack(spacing: 8) {
                     TextField(placeholder, text: Binding(
-                        get: { values[index] },
-                        set: { values[index] = $0 }
+                        get: { values.indices.contains(index) ? values[index] : "" },
+                        set: { newValue in
+                            guard values.indices.contains(index) else { return }
+                            values[index] = newValue
+                        }
                     ))
-                    Button(role: .destructive) { values.remove(at: index) } label: {
+                    Button(role: .destructive) {
+                        guard values.indices.contains(index) else { return }
+                        _ = withAnimation(EasyTierMotion.content(reduceMotion: reduceMotion)) {
+                            values.remove(at: index)
+                        }
+                    } label: {
                         Image(systemName: "minus.circle")
                     }
                     .buttonStyle(.borderless)
                 }
+                .transition(reduceMotion ? .opacity : .easyTierSlideFade(edge: .top, distance: 6))
             }
         }
         .padding(.vertical, 3)
+        .animation(EasyTierMotion.content(reduceMotion: reduceMotion), value: values.count)
     }
 }
 
 private struct PortForwardEditor: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     @Binding var portForwards: [PortForwardConfig]
 
     var body: some View {
@@ -252,7 +272,11 @@ private struct PortForwardEditor: View {
                 Text("Rules")
                     .font(.system(size: 13.5, weight: .medium))
                 Spacer()
-                Button { portForwards.append(PortForwardConfig()) } label: { Image(systemName: "plus") }
+                Button {
+                    withAnimation(EasyTierMotion.content(reduceMotion: reduceMotion)) {
+                        portForwards.append(PortForwardConfig())
+                    }
+                } label: { Image(systemName: "plus") }
                     .buttonStyle(.borderless)
             }
 
@@ -273,15 +297,19 @@ private struct PortForwardEditor: View {
                         TextField("Port", value: $rule.dst_port, format: .number)
                             .frame(width: 90)
                         Button(role: .destructive) {
-                            portForwards.removeAll { $0.id == rule.id }
+                            withAnimation(EasyTierMotion.content(reduceMotion: reduceMotion)) {
+                                portForwards.removeAll { $0.id == rule.id }
+                            }
                         } label: {
                             Image(systemName: "minus.circle")
                         }
                         .buttonStyle(.borderless)
                     }
                 }
+                .transition(reduceMotion ? .opacity : .easyTierSlideFade(edge: .top, distance: 6))
             }
         }
+        .animation(EasyTierMotion.content(reduceMotion: reduceMotion), value: portForwards.count)
     }
 }
 

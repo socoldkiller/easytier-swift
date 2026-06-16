@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AboutView: View {
     @Environment(SoftwareUpdateController.self) private var updater
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let appInfo = AppVersionInfo.current
     private let revisions = SourceRevisionInfo.current
@@ -27,6 +28,7 @@ struct AboutView: View {
         .background(background)
         .foregroundStyle(primaryText)
         .environment(\.colorScheme, .dark)
+        .presentedSurfaceMotion()
     }
 
     private var content: some View {
@@ -113,6 +115,7 @@ struct AboutView: View {
         }
         .frame(minHeight: 13, alignment: .trailing)
         .contentTransition(.opacity)
+        .animation(EasyTierMotion.quick(reduceMotion: reduceMotion), value: updateStatusText)
     }
 
     private var updateStatusText: String {
@@ -195,7 +198,7 @@ private struct AboutLink: View {
                 .font(.system(size: 11, weight: .regular))
                 .foregroundStyle(color)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(QuietPressButtonStyle(pressedScale: 0.96, pressedOpacity: 0.72))
     }
 
     private func openURL() {

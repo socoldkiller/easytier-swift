@@ -3,6 +3,7 @@ import EasyTierShared
 import SwiftUI
 
 struct StatusView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(EasyTierAppStore.self) private var store
     @State private var publicServerGroupExpanded = false
 
@@ -24,27 +25,42 @@ struct StatusView: View {
 
             if let runtimeError {
                 ErrorBanner(message: runtimeError)
+                    .transition(reduceMotion ? .opacity : .easyTierSlideFade(edge: .top, distance: 8))
             }
 
-            if instance == nil {
-                ConnectionEmptyState(
-                    "No Running Network",
-                    state: connectionState,
-                    description: Text("Run the selected network to see its members.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if members.isEmpty {
-                ConnectionEmptyState(
-                    "No Member Information",
-                    state: connectionState,
-                    description: Text(runtimeError ?? "EasyTier is running, but runtime member details have not arrived yet.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                memberTable
+            MotionSwitch(id: contentMotionID, insertionEdge: .bottom) {
+                statusContent
             }
         }
         .padding()
+        .animation(EasyTierMotion.content(reduceMotion: reduceMotion), value: runtimeError)
+    }
+
+    @ViewBuilder
+    private var statusContent: some View {
+        if instance == nil {
+            ConnectionEmptyState(
+                "No Running Network",
+                state: connectionState,
+                description: Text("Run the selected network to see its members.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if members.isEmpty {
+            ConnectionEmptyState(
+                "No Member Information",
+                state: connectionState,
+                description: Text(runtimeError ?? "EasyTier is running, but runtime member details have not arrived yet.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            memberTable
+        }
+    }
+
+    private var contentMotionID: String {
+        if instance == nil { return "empty-no-running" }
+        if members.isEmpty { return "empty-no-members" }
+        return "members"
     }
 
     private var header: some View {
@@ -653,6 +669,8 @@ private struct RouteCostBadge: View {
 }
 
 private struct StatusBadge: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var title: String
     var value: String
     var icon: StatusBadgeIcon
@@ -681,10 +699,12 @@ private struct StatusBadge: View {
                     .font(.headline)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
+                    .contentTransition(.opacity)
             }
         }
         .padding(10)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .animation(EasyTierMotion.quick(reduceMotion: reduceMotion), value: value)
     }
 
     @ViewBuilder

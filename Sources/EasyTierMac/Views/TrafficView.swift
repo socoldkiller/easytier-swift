@@ -22,16 +22,18 @@ struct TrafficView: View {
                 Spacer(minLength: 0)
             }
 
-            if instance == nil {
-                ContentUnavailableView(
-                    "No Traffic Data",
-                    systemImage: "chart.xyaxis.line",
-                    description: Text("Run the selected network to start collecting traffic samples.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                TrafficLineChart(samples: samples)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            MotionSwitch(id: instance == nil ? "empty" : "chart", insertionEdge: .bottom) {
+                if instance == nil {
+                    ContentUnavailableView(
+                        "No Traffic Data",
+                        systemImage: "chart.xyaxis.line",
+                        description: Text("Run the selected network to start collecting traffic samples.")
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    TrafficLineChart(samples: samples)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
             }
         }
         .padding()
@@ -39,6 +41,8 @@ struct TrafficView: View {
 }
 
 private struct StatusMetric: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var title: String
     var value: String
     var systemImage: String
@@ -59,12 +63,14 @@ private struct StatusMetric: View {
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
+                    .contentTransition(.opacity)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(10)
         .frame(width: width, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .animation(EasyTierMotion.quick(reduceMotion: reduceMotion), value: value)
     }
 }
 

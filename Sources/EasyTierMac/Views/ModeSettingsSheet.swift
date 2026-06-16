@@ -9,6 +9,7 @@ struct ModeSettingsSheet: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var kind: ModeKind
     @State private var rpcPortal: String
     @State private var rpcListenEnabled: Bool
@@ -50,27 +51,19 @@ struct ModeSettingsSheet: View {
             Text("Mode Settings")
                 .font(.title2.weight(.semibold))
 
-            Picker("Mode", selection: $kind) {
+            Picker("Mode", selection: kindBinding) {
                 ForEach(ModeKind.allCases) { kind in
                     Text(kind.rawValue).tag(kind)
                 }
             }
             .pickerStyle(.segmented)
 
-            Form {
-                switch kind {
-                case .normal:
-                    Toggle("Enable TCP RPC listen", isOn: $rpcListenEnabled)
-                    TextField("RPC portal", text: $rpcPortal)
-                        .disabled(!rpcListenEnabled)
-                    Stepper("RPC listen port: \(rpcListenPort)", value: $rpcListenPort, in: 1...65_535)
-                        .disabled(!rpcListenEnabled)
-                    TextField("Config server URL", text: $configServerURL)
-                case .remote:
-                    TextField("Remote RPC address", text: $remoteRPCAddress)
+            MotionSwitch(id: kind.id, insertionEdge: kind == .remote ? .trailing : .leading) {
+                Form {
+                    modeFields
                 }
+                .formStyle(.grouped)
             }
-            .formStyle(.grouped)
 
             HStack {
                 Spacer()
@@ -84,6 +77,34 @@ struct ModeSettingsSheet: View {
         }
         .padding(24)
         .frame(width: 520, height: 460)
+        .presentedSurfaceMotion()
+    }
+
+    @ViewBuilder
+    private var modeFields: some View {
+        switch kind {
+        case .normal:
+            Toggle("Enable TCP RPC listen", isOn: $rpcListenEnabled)
+            TextField("RPC portal", text: $rpcPortal)
+                .disabled(!rpcListenEnabled)
+            Stepper("RPC listen port: \(rpcListenPort)", value: $rpcListenPort, in: 1...65_535)
+                .disabled(!rpcListenEnabled)
+            TextField("Config server URL", text: $configServerURL)
+        case .remote:
+            TextField("Remote RPC address", text: $remoteRPCAddress)
+        }
+    }
+
+    private var kindBinding: Binding<ModeKind> {
+        Binding(
+            get: { kind },
+            set: { newValue in
+                guard newValue != kind else { return }
+                withAnimation(EasyTierMotion.selection(reduceMotion: reduceMotion)) {
+                    kind = newValue
+                }
+            }
+        )
     }
 
     private func buildMode() -> AppMode {

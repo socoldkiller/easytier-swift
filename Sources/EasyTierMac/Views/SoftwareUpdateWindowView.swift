@@ -2,6 +2,7 @@ import EasyTierShared
 import SwiftUI
 
 struct SoftwareUpdateWindowView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var controller: SoftwareUpdateController
 
     private let background = Color(red: 0.19, green: 0.21, blue: 0.21)
@@ -17,8 +18,15 @@ struct SoftwareUpdateWindowView: View {
                     .padding(.top, 2)
 
                 VStack(alignment: .leading, spacing: 14) {
-                    titleBlock
-                    progressBlock
+                    MotionSwitch(id: controller.state.titleMotionID, insertionEdge: .trailing, fillsAvailableSpace: false) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            titleBlock
+                        }
+                    }
+
+                    MotionSwitch(id: controller.state.progressMotionID, insertionEdge: .bottom, fillsAvailableSpace: false) {
+                        progressBlock
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -29,9 +37,13 @@ struct SoftwareUpdateWindowView: View {
             Spacer(minLength: 0)
 
             HStack(spacing: 14) {
-                leadingButtons
+                MotionSwitch(id: controller.state.leadingActionMotionID, insertionEdge: .leading, fillsAvailableSpace: false) {
+                    leadingButtons
+                }
                 Spacer(minLength: 0)
-                trailingButtons
+                MotionSwitch(id: controller.state.trailingActionMotionID, insertionEdge: .trailing, fillsAvailableSpace: false) {
+                    trailingButtons
+                }
             }
             .padding(.horizontal, 38)
             .padding(.bottom, 28)
@@ -40,6 +52,9 @@ struct SoftwareUpdateWindowView: View {
         .background(background)
         .foregroundStyle(primaryText)
         .environment(\.colorScheme, .dark)
+        .animation(EasyTierMotion.content(reduceMotion: reduceMotion), value: controller.state.titleMotionID)
+        .presentedSurfaceMotion()
+        .windowMotion(role: .utilityPanel)
     }
 
     @ViewBuilder
@@ -58,7 +73,7 @@ struct SoftwareUpdateWindowView: View {
                 .font(.system(size: 16, weight: .regular))
                 .foregroundStyle(secondaryText)
         case .available(let update, let currentVersion):
-            Text("A new version of EasyTier is available!")
+            Text("A new version of EasyTier is available.")
                 .font(.system(size: 24, weight: .bold))
             Text("EasyTier \(update.version) is now available—you have \(currentVersion).")
                 .font(.system(size: 16, weight: .regular))
@@ -182,6 +197,68 @@ private extension SoftwareUpdateState {
             return message
         default:
             return nil
+        }
+    }
+
+    var titleMotionID: String {
+        switch self {
+        case .idle:
+            "idle"
+        case .checking:
+            "checking"
+        case .noUpdate(let currentVersion):
+            "no-update-\(currentVersion)"
+        case .available(let update, let currentVersion):
+            "available-\(update.version)-\(currentVersion)"
+        case .downloading(let update, _):
+            "downloading-\(update.version)"
+        case .failed:
+            "failed"
+        case .downloadFailed(let update, _):
+            "download-failed-\(update.version)"
+        case .verificationFailed(let update, _):
+            "verification-failed-\(update.version)"
+        case .readyToInstall(let update, _):
+            "ready-\(update.version)"
+        }
+    }
+
+    var progressMotionID: String {
+        switch self {
+        case .checking:
+            "checking-progress"
+        case .downloading(_, let progress):
+            progress == nil ? "download-indeterminate" : "download-progress"
+        case .available, .downloadFailed, .verificationFailed:
+            "release-notes"
+        default:
+            "empty-progress"
+        }
+    }
+
+    var leadingActionMotionID: String {
+        switch self {
+        case .available:
+            "skip"
+        default:
+            "empty-leading"
+        }
+    }
+
+    var trailingActionMotionID: String {
+        switch self {
+        case .checking, .idle:
+            "close"
+        case .noUpdate, .failed:
+            "ok"
+        case .available:
+            "download"
+        case .downloading:
+            "downloading"
+        case .downloadFailed, .verificationFailed:
+            "retry"
+        case .readyToInstall:
+            "quit"
         }
     }
 }

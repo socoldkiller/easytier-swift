@@ -48,5 +48,6 @@ struct TOMLSheet: View {
         }
         .padding(24)
         .frame(width: 720, height: 560)
+        .presentedSurfaceMotion()
     }
 }

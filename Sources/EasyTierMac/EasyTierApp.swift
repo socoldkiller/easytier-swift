@@ -176,6 +176,7 @@ private final class MenuBarStatusItemController: NSObject {
     override init() {
         super.init()
         popover.behavior = .transient
+        popover.animates = true
         popover.contentSize = Self.popoverSize
     }
 
@@ -470,9 +471,9 @@ private struct MenuBarContent: View {
                         .padding(4)
                         .background(connectionSwitchBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
-                    .buttonStyle(.plain)
-                    .disabled(store.isBusy || store.selectedConfig == nil)
-                    .onHover { isConnectionSwitchHovering = $0 }
+                .buttonStyle(QuietPressButtonStyle(pressedScale: 0.94, pressedOpacity: 0.86))
+                .disabled(store.isBusy || store.selectedConfig == nil)
+                .onHover { isConnectionSwitchHovering = $0 }
             }
             .padding(.horizontal, 12)
             .padding(.top, 8)
@@ -523,6 +524,7 @@ private struct MenuBarContent: View {
         .foregroundStyle(MenuBarPalette.primaryText)
         .background(.ultraThinMaterial)
         .environment(\.colorScheme, .dark)
+        .presentedSurfaceMotion()
     }
 
     private var selectedNetworkState: ConnectionGlyphState {
@@ -679,6 +681,8 @@ private struct MenuBarDivider: View {
 }
 
 private struct MenuBarConnectionSwitch: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var isOn: Bool
     var isBusy: Bool
 
@@ -702,7 +706,7 @@ private struct MenuBarConnectionSwitch: View {
         }
         .frame(width: 40, height: 24)
         .opacity(isBusy ? 0.58 : 1)
-        .animation(.easeOut(duration: 0.16), value: isOn)
+        .animation(EasyTierMotion.selection(reduceMotion: reduceMotion), value: isOn)
         .accessibilityLabel(isOn ? Text("Disconnect") : Text("Connect"))
     }
 
@@ -739,6 +743,8 @@ private struct MenuBarNetworkAvatar: View {
 }
 
 private struct MenuBarNetworkRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var name: String
     var subtitle: String
     var state: ConnectionGlyphState
@@ -777,7 +783,7 @@ private struct MenuBarNetworkRow: View {
                 .padding(.vertical, 6)
                 .background(rowBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(QuietPressButtonStyle(pressedScale: 0.985, pressedOpacity: 0.82))
             .frame(maxWidth: .infinity)
             .onHover { isOpenHovering = $0 }
 
@@ -790,7 +796,8 @@ private struct MenuBarNetworkRow: View {
         }
         .padding(.horizontal, MenuBarPalette.selectedRowHorizontalInset)
         .padding(.vertical, MenuBarPalette.selectedRowVerticalInset)
-        .animation(.easeOut(duration: 0.14), value: isOpenHovering)
+        .animation(EasyTierMotion.quick(reduceMotion: reduceMotion), value: isOpenHovering)
+        .animation(EasyTierMotion.content(reduceMotion: reduceMotion), value: name)
     }
 
     private var primaryTextColor: Color {
@@ -807,6 +814,8 @@ private struct MenuBarNetworkRow: View {
 }
 
 private struct MenuBarIconButton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var systemName: String
     var help: String
     var action: () -> Void
@@ -822,9 +831,9 @@ private struct MenuBarIconButton: View {
                 .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .background(buttonBackground, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(QuietPressButtonStyle(pressedScale: 0.9, pressedOpacity: 0.82))
         .onHover { isHovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: isHovering)
+        .animation(EasyTierMotion.quick(reduceMotion: reduceMotion), value: isHovering)
         .help(help)
     }
 
@@ -851,6 +860,8 @@ private struct MenuBarPlainRow: View {
 }
 
 private struct MenuBarCopyRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var title: String
     var isCopied: Bool
     var isDisabled: Bool
@@ -880,11 +891,11 @@ private struct MenuBarCopyRow: View {
             .padding(.horizontal, MenuBarPalette.selectedRowHorizontalInset)
             .padding(.vertical, MenuBarPalette.selectedRowVerticalInset)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(QuietPressButtonStyle(pressedScale: 0.985, pressedOpacity: 0.82))
         .disabled(isDisabled)
         .onHover { isHovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: isCopied)
-        .animation(.easeOut(duration: 0.14), value: isHovering)
+        .animation(EasyTierMotion.quick(reduceMotion: reduceMotion), value: isCopied)
+        .animation(EasyTierMotion.quick(reduceMotion: reduceMotion), value: isHovering)
         .help("Copy IP address")
     }
 
@@ -906,6 +917,8 @@ private struct MenuBarCopyRow: View {
 }
 
 private struct MenuBarListButton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var title: String
     var shortcut: String?
     var action: () -> Void
@@ -932,9 +945,9 @@ private struct MenuBarListButton: View {
             .padding(.horizontal, MenuBarPalette.selectedRowHorizontalInset)
             .padding(.vertical, MenuBarPalette.selectedRowVerticalInset)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(QuietPressButtonStyle(pressedScale: 0.985, pressedOpacity: 0.82))
         .onHover { isHovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: isHovering)
+        .animation(EasyTierMotion.quick(reduceMotion: reduceMotion), value: isHovering)
     }
 
     private var primaryTextColor: Color {

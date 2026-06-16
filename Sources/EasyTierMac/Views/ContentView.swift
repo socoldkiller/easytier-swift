@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(EasyTierAppStore.self) private var store
     @State private var permissionController = PermissionController()
     @State private var showingModeSettings = false
@@ -11,6 +12,7 @@ struct ContentView: View {
     @State private var draftConfig = NetworkConfig()
     @State private var draftConfigID: String?
     @State private var draftIsDirty = false
+    @State private var tabTransitionEdge: Edge = .trailing
 
     var body: some View {
         @Bindable var store = store
@@ -21,29 +23,13 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 PermissionBanner(controller: permissionController)
 
-                WorkspaceTabBar(selection: $store.selectedTab)
+                WorkspaceTabBar(selection: tabSelectionBinding)
                 .padding([.horizontal, .top])
 
                 Divider().padding(.top, 12)
 
-                Group {
-                    switch store.selectedTab {
-                    case .status:
-                        StatusView()
-                    case .view:
-                        TrafficView()
-                    case .config:
-                        if let config = draftConfigBinding() {
-                            ConfigEditorView(config: config)
-                        } else if store.selectedConfigID != nil {
-                            ProgressView()
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        } else {
-                            ContentUnavailableView("No Network", systemImage: "network", description: Text("Create a network config to begin."))
-                        }
-                    case .logs:
-                        LogsView()
-                    }
+                MotionSwitch(id: store.selectedTab.id, insertionEdge: tabTransitionEdge) {
+                    workspaceContent
                 }
             }
             .navigationTitle(navigationTitle)
@@ -77,6 +63,28 @@ struct ContentView: View {
             Button("OK") { store.lastError = nil }
         } message: {
             Text(store.lastError ?? "")
+        }
+        .windowMotion(role: .document)
+    }
+
+    @ViewBuilder
+    private var workspaceContent: some View {
+        switch store.selectedTab {
+        case .status:
+            StatusView()
+        case .view:
+            TrafficView()
+        case .config:
+            if let config = draftConfigBinding() {
+                ConfigEditorView(config: config)
+            } else if store.selectedConfigID != nil {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView("No Network", systemImage: "network", description: Text("Create a network config to begin."))
+            }
+        case .logs:
+            LogsView()
         }
     }
 
@@ -221,8 +229,23 @@ struct ContentView: View {
             get: { store.selectedConfigID },
             set: { newValue in
                 commitDraft(saveImmediately: true)
-                store.selectedConfigID = newValue
-                loadDraft(for: newValue)
+                withAnimation(EasyTierMotion.content(reduceMotion: reduceMotion)) {
+                    store.selectedConfigID = newValue
+                    loadDraft(for: newValue)
+                }
+            }
+        )
+    }
+
+    private var tabSelectionBinding: Binding<WorkspaceTab> {
+        Binding(
+            get: { store.selectedTab },
+            set: { newValue in
+                guard newValue != store.selectedTab else { return }
+                tabTransitionEdge = newValue.motionIndex > store.selectedTab.motionIndex ? .trailing : .leading
+                withAnimation(EasyTierMotion.selection(reduceMotion: reduceMotion)) {
+                    store.selectedTab = newValue
+                }
             }
         )
     }
@@ -269,7 +292,9 @@ struct ContentView: View {
 }
 
 private struct WorkspaceTabBar: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var selection: WorkspaceTab
+    @Namespace private var selectionNamespace
 
     private let tabs = WorkspaceTab.allCases
 
@@ -298,6 +323,7 @@ private struct WorkspaceTabBar: View {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .stroke(.primary.opacity(0.06), lineWidth: 1)
             }
+            .animation(EasyTierMotion.selection(reduceMotion: reduceMotion), value: selection.id)
         }
     }
 
@@ -313,64 +339,71 @@ private struct WorkspaceTabBar: View {
                 .frame(maxWidth: .infinity, minHeight: 24)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(0.82))
         .background {
             if isSelected {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(Color.accentColor)
+                    .matchedGeometryEffect(id: "workspace-tab-selection", in: selectionNamespace)
+                    .shadow(color: Color.accentColor.opacity(0.22), radius: 4, y: 1)
             }
         }
+        .buttonStyle(QuietPressButtonStyle(pressedScale: 0.97, pressedOpacity: 0.88))
         .accessibilityLabel(Text(tab.rawValue))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
 private struct PermissionBanner: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var controller: PermissionController
 
     var body: some View {
-        if controller.state != .enabled {
-            HStack(spacing: 12) {
-                Image(systemName: "lock.shield")
-                    .font(.title3)
-                    .foregroundStyle(.orange)
+        VStack(spacing: 0) {
+            if controller.state != .enabled {
+                HStack(spacing: 12) {
+                    Image(systemName: "lock.shield")
+                        .font(.title3)
+                        .foregroundStyle(.orange)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("EasyTier needs a privileged helper to create TUN devices.")
-                        .font(.subheadline.weight(.semibold))
-                    Text(controller.detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                if controller.state == .requiresApproval {
-                    Button("Open Settings") { controller.openSystemSettings() }
-                }
-                switch controller.state {
-                case .requiresApproval:
-                    Button("Refresh") { Task { await controller.refresh() } }
-                        .disabled(controller.isBusy)
-                case .error:
-                    Button("Repair Helper") { Task { await controller.repair() } }
-                        .disabled(controller.isBusy)
-                default:
-                    Button("Install Helper") {
-                        Task { await controller.install() }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("EasyTier needs a privileged helper to create TUN devices.")
+                            .font(.subheadline.weight(.semibold))
+                        Text(controller.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .disabled(controller.isBusy)
+
+                    Spacer()
+
+                    if controller.state == .requiresApproval {
+                        Button("Open Settings") { controller.openSystemSettings() }
+                    }
+                    switch controller.state {
+                    case .requiresApproval:
+                        Button("Refresh") { Task { await controller.refresh() } }
+                            .disabled(controller.isBusy)
+                    case .error:
+                        Button("Repair Helper") { Task { await controller.repair() } }
+                            .disabled(controller.isBusy)
+                    default:
+                        Button("Install Helper") {
+                            Task { await controller.install() }
+                        }
+                        .disabled(controller.isBusy)
+                    }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.bar)
+                .transition(reduceMotion ? .opacity : .easyTierSlideFade(edge: .top, distance: 10))
+                .task(id: controller.state) {
+                    await refreshUntilHelperApproved()
+                }
+                Divider()
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(.bar)
-            .task(id: controller.state) {
-                await refreshUntilHelperApproved()
-            }
-            Divider()
         }
+        .animation(EasyTierMotion.content(reduceMotion: reduceMotion), value: controller.state)
     }
 
     private func refreshUntilHelperApproved() async {
@@ -388,6 +421,12 @@ private struct PermissionBanner: View {
     }
 
     private static let approvalRefreshIntervalNanoseconds: UInt64 = 2_000_000_000
+}
+
+private extension WorkspaceTab {
+    var motionIndex: Int {
+        WorkspaceTab.allCases.firstIndex(where: { $0.id == id }) ?? 0
+    }
 }
 
 private struct NetworkRow: View {
