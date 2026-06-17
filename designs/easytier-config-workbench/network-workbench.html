@@ -1,0 +1,1197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EasyTier Network Workbench Concept</title>
+  <style>
+    :root {
+      --page: #111519;
+      --window: #202528;
+      --window-2: #23292d;
+      --sidebar: #16222b;
+      --sidebar-2: #1b2a34;
+      --panel: #282e32;
+      --panel-2: #2d3438;
+      --panel-3: #333b3f;
+      --stroke: rgba(255,255,255,.095);
+      --stroke-soft: rgba(255,255,255,.055);
+      --text: rgba(255,255,255,.93);
+      --muted: rgba(255,255,255,.58);
+      --faint: rgba(255,255,255,.34);
+      --blue: #4f8cff;
+      --blue-2: #7ab4ff;
+      --green: #51e087;
+      --mint: #69e6c2;
+      --amber: #ffbd4a;
+      --red: #ff6159;
+      --purple: #a88bff;
+      --shadow: 0 40px 100px rgba(0,0,0,.44);
+      --spring: cubic-bezier(.2,.82,.16,1);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 8% 10%, rgba(75,141,255,.24), transparent 28%),
+        radial-gradient(circle at 90% 16%, rgba(81,224,135,.13), transparent 26%),
+        linear-gradient(140deg, #0a0f13 0%, #14191d 50%, #0c1115 100%);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px);
+      background-size: 72px 72px;
+      mask-image: radial-gradient(circle at center, black, transparent 76%);
+    }
+
+    .shot {
+      width: 1800px;
+      height: 1125px;
+      padding: 22px;
+      display: grid;
+      place-items: center;
+    }
+
+    .window {
+      width: 1744px;
+      height: 1068px;
+      border-radius: 31px;
+      overflow: hidden;
+      background: var(--window);
+      border: 1px solid rgba(255,255,255,.16);
+      box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,.13);
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      position: relative;
+    }
+
+    .sidebar {
+      background: linear-gradient(180deg, var(--sidebar), #111a21);
+      border-right: 1px solid rgba(255,255,255,.11);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .traffic-lights {
+      display: flex;
+      gap: 14px;
+      padding: 31px 30px 20px;
+      align-items: center;
+    }
+
+    .light {
+      width: 23px;
+      height: 23px;
+      border-radius: 50%;
+      box-shadow: inset 0 -1px 0 rgba(0,0,0,.22);
+    }
+
+    .red { background: #ff5f57; }
+    .yellow { background: #ffbd2e; }
+    .greenlight { background: #28c840; }
+
+    .side-title {
+      padding: 17px 31px 13px;
+      color: rgba(255,255,255,.45);
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -.02em;
+    }
+
+    .network-list {
+      display: grid;
+      gap: 10px;
+      padding: 0 20px;
+    }
+
+    .network-row {
+      display: grid;
+      grid-template-columns: 36px 1fr auto;
+      gap: 15px;
+      align-items: center;
+      min-height: 84px;
+      padding: 16px;
+      border-radius: 14px;
+      color: var(--text);
+    }
+
+    .network-row.active {
+      background: rgba(255,255,255,.13);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+    }
+
+    .network-row:not(.active) {
+      color: rgba(255,255,255,.8);
+    }
+
+    .glyph {
+      width: 34px;
+      height: 34px;
+      position: relative;
+    }
+
+    .glyph i {
+      position: absolute;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.9);
+      box-shadow: 0 0 0 3px rgba(255,255,255,.04);
+    }
+
+    .glyph i:nth-child(1) { left: 13px; top: 2px; }
+    .glyph i:nth-child(2) { left: 3px; bottom: 4px; }
+    .glyph i:nth-child(3) { right: 3px; bottom: 4px; background: var(--green); }
+
+    .glyph::before,
+    .glyph::after {
+      content: "";
+      position: absolute;
+      left: 9px;
+      top: 12px;
+      width: 20px;
+      height: 1.5px;
+      background: rgba(255,255,255,.48);
+      transform-origin: left center;
+    }
+
+    .glyph::before { transform: rotate(58deg); }
+    .glyph::after { transform: rotate(122deg); }
+
+    .row-copy {
+      display: grid;
+      gap: 4px;
+    }
+
+    .row-copy strong {
+      font-size: 22px;
+      line-height: 1;
+      letter-spacing: -.035em;
+    }
+
+    .row-copy span {
+      color: rgba(255,255,255,.52);
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 5px rgba(81,224,135,.13);
+    }
+
+    .sidebar-bottom {
+      margin-top: auto;
+      padding: 20px 24px 26px;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+    }
+
+    .side-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: rgba(255,255,255,.55);
+      border: 1px solid transparent;
+      font-size: 24px;
+      line-height: 1;
+    }
+
+    .side-icon:hover {
+      background: rgba(255,255,255,.08);
+      border-color: rgba(255,255,255,.08);
+    }
+
+    .main {
+      display: grid;
+      grid-template-rows: 84px 86px 1fr;
+      background:
+        radial-gradient(circle at 78% 8%, rgba(79,140,255,.14), transparent 30%),
+        linear-gradient(180deg, var(--window), #202529 55%, #1d2225);
+      min-width: 0;
+    }
+
+    .titlebar {
+      display: flex;
+      align-items: center;
+      padding: 0 34px;
+      border-bottom: 1px solid rgba(255,255,255,.07);
+    }
+
+    .app-title {
+      font-size: 25px;
+      font-weight: 760;
+      letter-spacing: -.045em;
+    }
+
+    .title-meta {
+      margin-left: 12px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 650;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.055);
+      border: 1px solid rgba(255,255,255,.05);
+    }
+
+    .toolbar {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .pill-action {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      border-radius: 999px;
+      padding: 0 16px;
+      font-size: 15px;
+      font-weight: 760;
+      color: rgba(255,255,255,.9);
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.1);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+    }
+
+    .pill-action.ready {
+      color: #071611;
+      background: linear-gradient(180deg, #70f0a0, #39d977);
+      border: none;
+      box-shadow: 0 0 0 5px rgba(81,224,135,.13), inset 0 1px 0 rgba(255,255,255,.38);
+    }
+
+    .icon-button {
+      width: 52px;
+      height: 52px;
+      border-radius: 26px;
+      display: grid;
+      place-items: center;
+      color: rgba(255,255,255,.82);
+      background: rgba(255,255,255,.075);
+      border: 1px solid rgba(255,255,255,.09);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+      font-size: 24px;
+      line-height: 1;
+    }
+
+    .tabs-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+
+    .tabs-wrap {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .view-label {
+      color: rgba(255,255,255,.76);
+      font-size: 20px;
+      font-weight: 740;
+      letter-spacing: -.025em;
+    }
+
+    .segmented {
+      display: flex;
+      align-items: center;
+      padding: 4px;
+      border-radius: 11px;
+      background: rgba(255,255,255,.09);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+    }
+
+    .segmented button {
+      appearance: none;
+      border: 0;
+      color: rgba(255,255,255,.72);
+      background: transparent;
+      padding: 9px 25px;
+      border-radius: 8px;
+      font: inherit;
+      font-size: 20px;
+      font-weight: 710;
+      letter-spacing: -.03em;
+    }
+
+    .segmented .active-tab {
+      color: white;
+      background: linear-gradient(180deg, #5d94ff, #3578f4);
+      box-shadow: 0 8px 18px rgba(31,111,255,.24), inset 0 1px 0 rgba(255,255,255,.24);
+    }
+
+    .workspace {
+      padding: 26px 30px 30px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 390px;
+      gap: 22px;
+      min-height: 0;
+    }
+
+    .left-stack,
+    .right-stack {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      gap: 18px;
+    }
+
+    .left-stack {
+      grid-template-rows: 108px 1fr 156px;
+    }
+
+    .right-stack {
+      grid-template-rows: 178px 1fr 230px;
+    }
+
+    .hero-strip {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 24px;
+      align-items: center;
+    }
+
+    .screen-heading {
+      display: grid;
+      gap: 7px;
+    }
+
+    .eyebrow {
+      color: var(--blue-2);
+      font-size: 12px;
+      font-weight: 850;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 39px;
+      line-height: 1.02;
+      letter-spacing: -.06em;
+      font-weight: 780;
+    }
+
+    .screen-heading p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 16px;
+      font-weight: 590;
+    }
+
+    .quick-mode {
+      display: flex;
+      gap: 8px;
+      padding: 6px;
+      border-radius: 13px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid var(--stroke-soft);
+    }
+
+    .mode-chip {
+      min-width: 92px;
+      height: 44px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: rgba(255,255,255,.66);
+      font-size: 14px;
+      font-weight: 740;
+    }
+
+    .mode-chip.selected {
+      color: #08120f;
+      background: linear-gradient(180deg, #7ef0ad, #4be08a);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
+    }
+
+    .panel {
+      background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
+      border: 1px solid var(--stroke);
+      border-radius: 16px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.055);
+      min-width: 0;
+    }
+
+    .topology-panel {
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 48% 42%, rgba(79,140,255,.16), transparent 32%),
+        radial-gradient(circle at 75% 82%, rgba(81,224,135,.08), transparent 26%),
+        linear-gradient(180deg, rgba(255,255,255,.065), rgba(255,255,255,.035));
+    }
+
+    .topology-panel::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+      background-size: 42px 42px;
+      opacity: .54;
+      mask-image: linear-gradient(180deg, transparent 0%, black 18%, black 78%, transparent 100%);
+    }
+
+    .topology-title {
+      position: absolute;
+      top: 22px;
+      left: 24px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: rgba(255,255,255,.84);
+      font-weight: 780;
+      font-size: 18px;
+      letter-spacing: -.025em;
+      z-index: 2;
+    }
+
+    .topology-badge {
+      font-size: 12px;
+      color: rgba(255,255,255,.58);
+      border: 1px solid rgba(255,255,255,.09);
+      background: rgba(0,0,0,.16);
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-weight: 740;
+    }
+
+    .topology-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    .node {
+      position: absolute;
+      z-index: 3;
+      display: grid;
+      gap: 8px;
+      justify-items: center;
+      transform: translate(-50%, -50%);
+    }
+
+    .node-card {
+      min-width: 150px;
+      border-radius: 16px;
+      padding: 13px 14px;
+      background: rgba(27,32,36,.78);
+      border: 1px solid rgba(255,255,255,.13);
+      box-shadow: 0 20px 44px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.08);
+      backdrop-filter: blur(18px);
+    }
+
+    .node-card.primary {
+      min-width: 178px;
+      padding: 18px 18px 16px;
+      background: linear-gradient(180deg, rgba(45,58,65,.95), rgba(28,35,39,.9));
+      border-color: rgba(126,240,173,.28);
+      box-shadow: 0 0 0 8px rgba(81,224,135,.055), 0 28px 64px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.12);
+    }
+
+    .node-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 13px;
+      display: grid;
+      place-items: center;
+      background: rgba(255,255,255,.09);
+      border: 1px solid rgba(255,255,255,.1);
+      margin-bottom: 10px;
+      color: white;
+      font-size: 21px;
+      font-weight: 780;
+    }
+
+    .node-title {
+      display: block;
+      color: white;
+      font-size: 16px;
+      font-weight: 790;
+      letter-spacing: -.02em;
+      white-space: nowrap;
+    }
+
+    .node-meta {
+      display: block;
+      margin-top: 4px;
+      color: rgba(255,255,255,.52);
+      font-size: 12px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .node-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: rgba(255,255,255,.64);
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .node-status::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 4px rgba(81,224,135,.11);
+    }
+
+    .node.warn .node-status::before {
+      background: var(--amber);
+      box-shadow: 0 0 0 4px rgba(255,189,74,.1);
+    }
+
+    .node.mac { left: 50%; top: 46%; }
+    .node.peer { left: 21%; top: 27%; }
+    .node.virtual { left: 49%; top: 75%; }
+    .node.lan { left: 77%; top: 65%; }
+    .node.service { left: 76%; top: 29%; }
+
+    .node.mac .node-card {
+      text-align: left;
+    }
+
+    .node.mac .node-icon {
+      background: linear-gradient(180deg, #78eea9, #43d77c);
+      color: #06130d;
+      border: none;
+    }
+
+    .canvas-actions {
+      position: absolute;
+      left: 24px;
+      right: 24px;
+      bottom: 22px;
+      z-index: 4;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .tool-chip {
+      height: 39px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 13px;
+      border-radius: 999px;
+      color: rgba(255,255,255,.78);
+      background: rgba(13,17,20,.56);
+      border: 1px solid rgba(255,255,255,.1);
+      font-size: 13px;
+      font-weight: 750;
+      backdrop-filter: blur(14px);
+    }
+
+    .tool-chip.primary {
+      color: #071611;
+      background: linear-gradient(180deg, #73eda6, #41d87d);
+      border: none;
+    }
+
+    .mini-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: .72;
+    }
+
+    .intent-panel {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .intent-card {
+      border-radius: 13px;
+      padding: 14px;
+      background: rgba(0,0,0,.12);
+      border: 1px solid rgba(255,255,255,.075);
+      display: grid;
+      align-content: start;
+      gap: 9px;
+      min-height: 124px;
+    }
+
+    .intent-card.selected {
+      border-color: rgba(81,224,135,.3);
+      background: linear-gradient(180deg, rgba(81,224,135,.13), rgba(0,0,0,.08));
+    }
+
+    .intent-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .intent-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      background: rgba(255,255,255,.08);
+      color: rgba(255,255,255,.86);
+      font-weight: 850;
+      font-size: 14px;
+    }
+
+    .intent-state {
+      color: var(--green);
+      font-size: 12px;
+      font-weight: 820;
+    }
+
+    .intent-card h3 {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.1;
+      letter-spacing: -.03em;
+    }
+
+    .intent-card p {
+      margin: 0;
+      color: rgba(255,255,255,.52);
+      font-size: 12px;
+      line-height: 1.38;
+      font-weight: 600;
+    }
+
+    .side-panel {
+      padding: 18px;
+      display: grid;
+      gap: 15px;
+      align-content: start;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 12px;
+    }
+
+    .panel-header h2 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: -.035em;
+      line-height: 1.15;
+    }
+
+    .panel-header span {
+      color: rgba(255,255,255,.49);
+      font-size: 12px;
+      font-weight: 740;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .summary-tile {
+      border-radius: 12px;
+      padding: 13px;
+      background: rgba(0,0,0,.12);
+      border: 1px solid rgba(255,255,255,.065);
+      min-height: 70px;
+      display: grid;
+      gap: 5px;
+    }
+
+    .summary-tile label {
+      color: rgba(255,255,255,.44);
+      font-size: 11px;
+      font-weight: 820;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .summary-tile strong {
+      color: rgba(255,255,255,.9);
+      font-size: 17px;
+      letter-spacing: -.035em;
+      white-space: nowrap;
+    }
+
+    .health-list {
+      display: grid;
+      gap: 9px;
+    }
+
+    .health-item {
+      display: grid;
+      grid-template-columns: 28px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      min-height: 55px;
+      padding: 10px;
+      border-radius: 13px;
+      background: rgba(0,0,0,.105);
+      border: 1px solid rgba(255,255,255,.055);
+    }
+
+    .check {
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-size: 14px;
+      font-weight: 900;
+      color: #06130d;
+      background: var(--green);
+    }
+
+    .check.warn {
+      background: var(--amber);
+      color: #221300;
+    }
+
+    .health-copy {
+      display: grid;
+      gap: 2px;
+    }
+
+    .health-copy strong {
+      font-size: 14px;
+      letter-spacing: -.02em;
+    }
+
+    .health-copy span {
+      color: rgba(255,255,255,.49);
+      font-size: 12px;
+      font-weight: 610;
+      line-height: 1.25;
+    }
+
+    .health-tag {
+      color: rgba(255,255,255,.58);
+      background: rgba(255,255,255,.07);
+      border: 1px solid rgba(255,255,255,.065);
+      border-radius: 999px;
+      padding: 5px 8px;
+      font-size: 11px;
+      font-weight: 820;
+    }
+
+    .setup-card {
+      padding: 16px;
+      display: grid;
+      gap: 13px;
+      align-content: start;
+    }
+
+    .scenario {
+      border-radius: 14px;
+      padding: 14px;
+      background: rgba(0,0,0,.12);
+      border: 1px solid rgba(255,255,255,.06);
+      display: grid;
+      gap: 9px;
+    }
+
+    .scenario.selected {
+      background: linear-gradient(180deg, rgba(79,140,255,.17), rgba(0,0,0,.08));
+      border-color: rgba(79,140,255,.32);
+    }
+
+    .scenario-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .scenario h3 {
+      margin: 0;
+      font-size: 15px;
+      letter-spacing: -.025em;
+    }
+
+    .scenario p {
+      margin: 0;
+      color: rgba(255,255,255,.5);
+      font-size: 12px;
+      line-height: 1.35;
+      font-weight: 600;
+    }
+
+    .scenario .radio {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,.18);
+      position: relative;
+      flex: none;
+    }
+
+    .scenario.selected .radio {
+      border-color: var(--blue-2);
+    }
+
+    .scenario.selected .radio::after {
+      content: "";
+      position: absolute;
+      inset: 4px;
+      border-radius: 50%;
+      background: var(--blue-2);
+    }
+
+    .run-footer {
+      border-radius: 16px;
+      padding: 17px;
+      background:
+        radial-gradient(circle at 18% 0%, rgba(81,224,135,.18), transparent 42%),
+        linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+      border: 1px solid rgba(81,224,135,.21);
+      display: grid;
+      gap: 15px;
+      align-content: start;
+    }
+
+    .run-copy {
+      display: grid;
+      gap: 5px;
+    }
+
+    .run-copy strong {
+      font-size: 18px;
+      letter-spacing: -.035em;
+    }
+
+    .run-copy span {
+      color: rgba(255,255,255,.55);
+      font-size: 12px;
+      line-height: 1.35;
+      font-weight: 620;
+    }
+
+    .run-button {
+      height: 48px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: linear-gradient(180deg, #7af0aa, #3ad775);
+      color: #06140d;
+      font-size: 16px;
+      font-weight: 850;
+      box-shadow: 0 18px 36px rgba(49,217,117,.2), inset 0 1px 0 rgba(255,255,255,.38);
+    }
+
+    .run-button .play {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #06140d;
+      background: rgba(255,255,255,.35);
+      font-size: 12px;
+    }
+
+    .code-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: rgba(255,255,255,.55);
+      font-size: 12px;
+      font-weight: 680;
+      padding: 11px 12px;
+      border-radius: 12px;
+      background: rgba(0,0,0,.13);
+      border: 1px solid rgba(255,255,255,.06);
+    }
+
+    .mono {
+      font-family: "SF Mono", ui-monospace, Menlo, monospace;
+      letter-spacing: -.04em;
+    }
+
+    @media (max-width: 1000px) {
+      body { overflow: auto; }
+      .shot { width: 100vw; height: auto; padding: 12px; }
+      .window { width: min(100%, 980px); height: auto; grid-template-columns: 1fr; border-radius: 20px; }
+      .sidebar { display: none; }
+      .main { grid-template-rows: auto auto auto; }
+      .titlebar { min-height: 76px; }
+      .workspace { grid-template-columns: 1fr; }
+      .left-stack, .right-stack { grid-template-rows: auto; }
+      .topology-panel { height: 540px; }
+      .intent-panel { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shot">
+    <section class="window" data-screen-label="EasyTier Config Workbench">
+      <aside class="sidebar">
+        <div class="traffic-lights" aria-hidden="true">
+          <span class="light red"></span>
+          <span class="light yellow"></span>
+          <span class="light greenlight"></span>
+        </div>
+
+        <div class="side-title">Networks</div>
+        <div class="network-list">
+          <div class="network-row active">
+            <div class="glyph" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="row-copy"><strong>coldkiller</strong><span>Workbench</span></div>
+            <span class="status-dot"></span>
+          </div>
+          <div class="network-row">
+            <div class="glyph" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="row-copy"><strong>abc</strong><span>Member</span></div>
+            <span class="status-dot" style="background:#ff6159; box-shadow:0 0 0 5px rgba(255,97,89,.12)"></span>
+          </div>
+          <div class="network-row">
+            <div class="glyph" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="row-copy"><strong>office-lab</strong><span>Relay host</span></div>
+            <span class="status-dot" style="background:#ffbd4a; box-shadow:0 0 0 5px rgba(255,189,74,.12)"></span>
+          </div>
+        </div>
+
+        <div class="sidebar-bottom">
+          <div class="side-icon">+</div>
+          <div class="side-icon">-</div>
+          <div style="flex:1"></div>
+          <div class="side-icon">↻</div>
+        </div>
+      </aside>
+
+      <section class="main">
+        <header class="titlebar">
+          <div class="app-title">coldkiller</div>
+          <div class="title-meta">10.144.144.10 /24</div>
+          <div class="toolbar">
+            <div class="pill-action ready"><span class="mini-dot"></span>Ready to Run</div>
+            <div class="pill-action">Invite</div>
+            <div class="icon-button">⌘</div>
+            <div class="icon-button">?</div>
+          </div>
+        </header>
+
+        <div class="tabs-row">
+          <div class="tabs-wrap">
+            <div class="view-label">View</div>
+            <nav class="segmented" aria-label="Workspace tabs">
+              <button>Status</button>
+              <button>View</button>
+              <button class="active-tab">Config</button>
+              <button>Logs</button>
+            </nav>
+          </div>
+        </div>
+
+        <div class="workspace">
+          <section class="left-stack">
+            <div class="hero-strip">
+              <div class="screen-heading">
+                <div class="eyebrow">Network workbench</div>
+                <h1>Build the network by intent, not by fields.</h1>
+                <p>Every config value is represented as a role, link, service, or health check.</p>
+              </div>
+              <div class="quick-mode">
+                <div class="mode-chip selected">Join</div>
+                <div class="mode-chip">Relay</div>
+                <div class="mode-chip">Gateway</div>
+              </div>
+            </div>
+
+            <div class="panel topology-panel">
+              <div class="topology-title">Topology <span class="topology-badge">live preview</span></div>
+              <svg class="topology-svg" viewBox="0 0 920 520" preserveAspectRatio="none" aria-hidden="true">
+                <defs>
+                  <linearGradient id="linkA" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#6aa0ff" stop-opacity=".72" />
+                    <stop offset="1" stop-color="#5ae38f" stop-opacity=".7" />
+                  </linearGradient>
+                  <filter id="glow"><feGaussianBlur stdDeviation="4" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                </defs>
+                <path d="M196 142 C315 130, 355 205, 460 238" fill="none" stroke="url(#linkA)" stroke-width="3" stroke-linecap="round" filter="url(#glow)" />
+                <path d="M460 238 C475 290, 468 333, 450 390" fill="none" stroke="#69e6c2" stroke-opacity=".62" stroke-width="3" stroke-linecap="round" />
+                <path d="M460 238 C565 218, 623 176, 705 145" fill="none" stroke="#7ab4ff" stroke-opacity=".62" stroke-width="3" stroke-linecap="round" stroke-dasharray="8 10" />
+                <path d="M450 390 C575 412, 630 368, 710 338" fill="none" stroke="#51e087" stroke-opacity=".52" stroke-width="3" stroke-linecap="round" />
+                <circle cx="460" cy="238" r="110" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="1.5" />
+                <circle cx="460" cy="238" r="162" fill="none" stroke="rgba(255,255,255,.045)" stroke-width="1.5" />
+              </svg>
+
+              <div class="node peer warn">
+                <div class="node-card">
+                  <span class="node-title">Initial node</span>
+                  <span class="node-meta mono">tcp://1.1.1.1:11010</span>
+                </div>
+                <div class="node-status">reachable unknown</div>
+              </div>
+
+              <div class="node mac">
+                <div class="node-card primary">
+                  <div class="node-icon">M</div>
+                  <span class="node-title">This Mac</span>
+                  <span class="node-meta">DHCP virtual IPv4</span>
+                </div>
+                <div class="node-status">ready</div>
+              </div>
+
+              <div class="node virtual">
+                <div class="node-card">
+                  <span class="node-title">Virtual network</span>
+                  <span class="node-meta mono">10.144.144.0/24</span>
+                </div>
+                <div class="node-status">address valid</div>
+              </div>
+
+              <div class="node lan">
+                <div class="node-card">
+                  <span class="node-title">Expose LAN</span>
+                  <span class="node-meta mono">192.168.1.0/24</span>
+                </div>
+                <div class="node-status">route valid</div>
+              </div>
+
+              <div class="node service warn">
+                <div class="node-card">
+                  <span class="node-title">Local service</span>
+                  <span class="node-meta mono">:8080 -> 10.144.144.2:80</span>
+                </div>
+                <div class="node-status">not enabled</div>
+              </div>
+
+              <div class="canvas-actions">
+                <div class="tool-chip primary"><span class="mini-dot"></span>Add peer</div>
+                <div class="tool-chip"><span class="mini-dot"></span>Expose LAN</div>
+                <div class="tool-chip"><span class="mini-dot"></span>Port forward</div>
+                <div class="tool-chip"><span class="mini-dot"></span>Advanced</div>
+              </div>
+            </div>
+
+            <div class="panel intent-panel">
+              <article class="intent-card selected">
+                <div class="intent-top"><div class="intent-icon">1</div><span class="intent-state">active</span></div>
+                <h3>Join existing network</h3>
+                <p>Use an invite or peer URL. The form stays hidden until a node needs details.</p>
+              </article>
+              <article class="intent-card">
+                <div class="intent-top"><div class="intent-icon">2</div><span class="intent-state" style="color:rgba(255,255,255,.38)">off</span></div>
+                <h3>Publish local service</h3>
+                <p>Turn port forwarding into a visible service path with conflict checks.</p>
+              </article>
+              <article class="intent-card">
+                <div class="intent-top"><div class="intent-icon">3</div><span class="intent-state" style="color:rgba(255,255,255,.38)">off</span></div>
+                <h3>Become exit node</h3>
+                <p>Explain routing impact before enabling a network-wide capability.</p>
+              </article>
+              <article class="intent-card">
+                <div class="intent-top"><div class="intent-icon">4</div><span class="intent-state" style="color:#ffbd4a">review</span></div>
+                <h3>Advanced flags</h3>
+                <p>Group technical switches by behavior: speed, compatibility, security.</p>
+              </article>
+            </div>
+          </section>
+
+          <aside class="right-stack">
+            <section class="panel side-panel">
+              <div class="panel-header">
+                <div><h2>Config summary</h2><span>Generated from the workbench</span></div>
+              </div>
+              <div class="summary-grid">
+                <div class="summary-tile"><label>Name</label><strong>coldkiller</strong></div>
+                <div class="summary-tile"><label>Mode</label><strong>Manual peer</strong></div>
+                <div class="summary-tile"><label>Address</label><strong>DHCP /24</strong></div>
+                <div class="summary-tile"><label>Security</label><strong>Encrypted</strong></div>
+              </div>
+            </section>
+
+            <section class="panel side-panel">
+              <div class="panel-header">
+                <div><h2>Health check</h2><span>Updates while editing</span></div>
+                <span class="health-tag">5/6 ok</span>
+              </div>
+              <div class="health-list">
+                <div class="health-item">
+                  <div class="check">✓</div>
+                  <div class="health-copy"><strong>Identity is complete</strong><span>Network name and shared secret are set.</span></div>
+                  <span class="health-tag">ok</span>
+                </div>
+                <div class="health-item">
+                  <div class="check warn">!</div>
+                  <div class="health-copy"><strong>Peer not tested yet</strong><span>Run check to verify tcp://1.1.1.1:11010.</span></div>
+                  <span class="health-tag">warn</span>
+                </div>
+                <div class="health-item">
+                  <div class="check">✓</div>
+                  <div class="health-copy"><strong>No local port conflict</strong><span>Listeners, SOCKS5, VPN and forwards do not collide.</span></div>
+                  <span class="health-tag">ok</span>
+                </div>
+                <div class="health-item">
+                  <div class="check">✓</div>
+                  <div class="health-copy"><strong>Routes are valid</strong><span>Proxy CIDR and virtual network prefix are accepted.</span></div>
+                  <span class="health-tag">ok</span>
+                </div>
+                <div class="health-item">
+                  <div class="check">✓</div>
+                  <div class="health-copy"><strong>Safe defaults</strong><span>Encryption on, private mode available, P2P enabled.</span></div>
+                  <span class="health-tag">ok</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="run-footer">
+              <div class="run-copy">
+                <strong>Ready after one peer check</strong>
+                <span>The user can still open raw TOML, but the primary path is visual and goal based.</span>
+              </div>
+              <div class="code-row"><span>Export</span><span class="mono">NetworkConfig.toml</span></div>
+              <div class="run-button"><span class="play">▶</span>Run network</div>
+            </section>
+          </aside>
+        </div>
+      </section>
+    </section>
+  </main>
+</body>
+</html>
